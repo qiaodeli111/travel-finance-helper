@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw } from 'lucide-react';
-import { AppState } from './types';
+import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings } from 'lucide-react';
+import { AppState, Family, COUNTRIES } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { Summary } from './components/Summary';
 import { ExpenseList } from './components/ExpenseList';
+import { SettingsModal } from './components/SettingsModal';
 import { createLedgerId, saveLedger, loadLedger } from './services/storageService';
 import { exportToMarkdown, exportToPDF } from './services/exportService';
 
 // Constants
 const LEDGER_LIST_KEY = 'my_ledgers_v1';
-const DEFAULT_RATE = 2200;
+const DEFAULT_RATE = 2200; // Default IDR rate as fallback
 
 interface LedgerMeta {
   id: string;
@@ -17,22 +18,28 @@ interface LedgerMeta {
   lastAccess: number;
 }
 
+const DEFAULT_FAMILIES: Family[] = [
+  { id: 'f1', name: '家庭 1', count: 4 },
+  { id: 'f2', name: '家庭 2', count: 2 }
+];
+
 const DEFAULT_STATE: AppState = { 
   ledgerName: '新建账本',
   expenses: [], 
   exchangeRate: DEFAULT_RATE, 
-  family1Count: 4, 
-  family2Count: 2, 
+  families: DEFAULT_FAMILIES,
+  currencyCode: 'IDR',
+  destination: '印度尼西亚',
   lastUpdated: Date.now() 
 };
 
 // Helper to fetch rate
-const fetchCNYtoIDR = async (): Promise<number | null> => {
+const fetchExchangeRate = async (targetCurrency: string): Promise<number | null> => {
   try {
     const res = await fetch('https://api.exchangerate-api.com/v4/latest/CNY');
     if (!res.ok) throw new Error("Network response was not ok");
     const data = await res.json();
-    return data.rates.IDR;
+    return data.rates[targetCurrency];
   } catch (e) {
     console.error("Failed to fetch exchange rate:", e);
     return null;
@@ -54,6 +61,7 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(DEFAULT_STATE);
   const [activeTab, setActiveTab] = useState<'expenses' | 'summary'>('summary');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showLedgerMenu, setShowLedgerMenu] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
@@ -70,19 +78,24 @@ const App: React.FC = () => {
       const mostRecent = ledgers.sort((a, b) => b.lastAccess - a.lastAccess)[0];
       setActiveId(mostRecent.id);
       
-      // Auto-refresh rate if still at default when loading existing ledger
       const data = loadLedger(mostRecent.id);
-      if (data && data.exchangeRate === DEFAULT_RATE) {
-          const rate = await fetchCNYtoIDR();
-          if (rate) {
-              setState(prev => ({...prev, exchangeRate: rate}));
-          }
+      if (data) {
+        // Migration logic for old data
+        if (!data.families) {
+          data.families = [
+            { id: 'f1', name: '家庭 1', count: (data as any).family1Count || 4 },
+            { id: 'f2', name: '家庭 2', count: (data as any).family2Count || 2 }
+          ];
+          data.currencyCode = 'IDR';
+          data.destination = '印度尼西亚';
+        }
+        setState(data);
       }
     } else {
       // First time user: Create default
       const defaultData = { 
         ...DEFAULT_STATE, 
-        ledgerName: "我的巴厘岛账本"
+        ledgerName: "我的旅行账本"
       };
       const id = createLedgerId();
       saveLedger(id, defaultData);
@@ -93,7 +106,7 @@ const App: React.FC = () => {
       setState(defaultData);
 
       // Fetch latest rate in background
-      const rate = await fetchCNYtoIDR();
+      const rate = await fetchExchangeRate('IDR');
       if (rate) {
         setState(prev => {
           const updated = { ...prev, exchangeRate: rate };
@@ -119,6 +132,15 @@ const App: React.FC = () => {
     if (!activeId) return;
     const data = loadLedger(activeId);
     if (data) {
+        // Migration logic here as well just in case
+        if (!data.families) {
+          data.families = [
+            { id: 'f1', name: '家庭 1', count: (data as any).family1Count || 4 },
+            { id: 'f2', name: '家庭 2', count: (data as any).family2Count || 2 }
+          ];
+          data.currencyCode = 'IDR';
+          data.destination = '印度尼西亚';
+        }
         setState(data);
         setLedgers(prev => prev.map(L => 
              L.id === activeId ? { ...L, name: data.ledgerName, lastAccess: Date.now() } : L
@@ -155,7 +177,7 @@ const App: React.FC = () => {
     setState(newState);
     setShowLedgerMenu(false);
 
-    const rate = await fetchCNYtoIDR();
+    const rate = await fetchExchangeRate('IDR');
     if (rate) setState(prev => ({...prev, exchangeRate: rate}));
   };
 
@@ -166,15 +188,35 @@ const App: React.FC = () => {
 
   const handleRefreshRate = async () => {
     setRateLoading(true);
-    const rate = await fetchCNYtoIDR();
+    const rate = await fetchExchangeRate(state.currencyCode);
     setRateLoading(false);
     if (rate) {
-      if(window.confirm(`获取到最新汇率: 1 CNY = ${rate} IDR\n是否更新当前账本汇率？`)) {
+      if(window.confirm(`获取到最新汇率: 1 CNY = ${rate} ${state.currencyCode}\n是否更新当前账本汇率？`)) {
         setState(prev => ({...prev, exchangeRate: rate}));
       }
     } else {
       alert("汇率获取失败，请检查网络连接。");
     }
+  };
+
+  const handleSaveSettings = async (ledgerName: string, families: Family[], destination: string, currency: string) => {
+    let newRate = state.exchangeRate;
+    if (currency !== state.currencyCode) {
+      setRateLoading(true);
+      const rate = await fetchExchangeRate(currency);
+      setRateLoading(false);
+      if (rate) newRate = rate;
+    }
+
+    setState(prev => ({
+      ...prev,
+      ledgerName,
+      families,
+      destination,
+      currencyCode: currency,
+      exchangeRate: newRate
+    }));
+    setShowSettingsModal(false);
   };
 
   const handleExportJSON = () => {
@@ -198,148 +240,226 @@ const App: React.FC = () => {
         const reader = new FileReader();
         reader.onload = (ev) => {
             try {
-                const data = JSON.parse(ev.target?.result as string);
-                if(window.confirm(`确定要导入"${data.ledgerName}"吗？这将覆盖当前数据。`)) {
-                    setState(data);
+                const json = JSON.parse(ev.target?.result as string);
+                if(json.ledgerName && json.expenses) {
+                    // Basic validation passed
+                    // Ensure migration if importing old json
+                    if (!json.families) {
+                      json.families = DEFAULT_FAMILIES;
+                      json.currencyCode = 'IDR';
+                      json.destination = '印度尼西亚';
+                    }
+                    setState(json);
+                    alert("导入成功！");
+                } else {
+                    alert("文件格式不正确");
                 }
-            } catch(err) { alert("文件格式错误"); }
+            } catch (err) {
+                alert("文件解析失败");
+            }
         };
         reader.readAsText(file);
     };
     input.click();
   };
 
-  if (!activeId) return null;
+  const handleExportMarkdown = () => {
+    exportToMarkdown(state);
+  };
+
+  const handleExportPDF = async () => {
+    setExportLoading(true);
+    // Capture the hidden container which includes both Summary and List
+    await exportToPDF('pdf-export-container', state.ledgerName);
+    setExportLoading(false);
+  };
 
   return (
-    <div className="min-h-screen bg-[#f0fdf4] text-gray-800 pb-24" id="printable-area">
-      <header className="bg-teal-600 text-white shadow-md sticky top-0 z-30">
-        <div className="max-w-3xl mx-auto flex justify-between items-center p-4">
-          <div className="flex flex-col cursor-pointer" onClick={() => setShowLedgerMenu(!showLedgerMenu)}>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight">{state.ledgerName}</h1>
-              <ChevronDown size={16} className={`transition-transform ${showLedgerMenu ? 'rotate-180' : ''}`} />
-            </div>
-            <p className="text-xs text-teal-100 opacity-80">{state.family1Count}人 vs {state.family2Count}人</p>
+    <div className="min-h-screen pb-20 relative" id="app-content">
+      {/* Header Background Layer */}
+      <div className="absolute top-0 left-0 right-0 h-64 bg-teal-600 z-0" />
+
+      {/* Header Content Layer - High Z-Index for Dropdowns */}
+      <header className="relative z-30 p-4 pb-12 text-white">
+        <div className="flex justify-between items-center mb-4">
+          <div className="relative">
+            <button 
+              onClick={() => setShowLedgerMenu(!showLedgerMenu)}
+              className="flex items-center gap-2 font-bold text-lg hover:bg-teal-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Wallet size={20} />
+              {state.ledgerName}
+              <ChevronDown size={16} />
+            </button>
+
+            {/* Ledger Menu */}
+            {showLedgerMenu && (
+              <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden text-gray-800 z-50">
+                <div className="max-h-60 overflow-y-auto">
+                  {ledgers.map(l => (
+                    <button
+                      key={l.id}
+                      onClick={() => handleSwitchLedger(l.id)}
+                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between ${activeId === l.id ? 'bg-teal-50 text-teal-700' : ''}`}
+                    >
+                      <span className="truncate">{l.name}</span>
+                      {activeId === l.id && <CheckCircle size={14} />}
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t p-2">
+                  <button 
+                    onClick={handleCreateNewLedger}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-teal-600 hover:bg-teal-50 rounded-lg font-medium"
+                  >
+                    <Plus size={16} /> 新建账本
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-          <button onClick={() => window.confirm('清空账单？') && setState(p => ({...p, expenses:[]}))} className="p-2 bg-teal-700 rounded-full hover:bg-red-600">
-             <Trash2 size={18} />
+
+          <div className="flex gap-2">
+             <button 
+              onClick={() => setShowSettingsModal(true)}
+              className="p-2 hover:bg-teal-700 rounded-full transition-colors"
+              title="设置"
+            >
+              <Settings size={20} />
+            </button>
+            <button 
+              onClick={handleRefreshRate}
+              className={`p-2 hover:bg-teal-700 rounded-full transition-colors ${rateLoading ? 'animate-spin' : ''}`}
+              title="更新汇率"
+            >
+              <RefreshCw size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Stats Summary (Mini) */}
+        <div className="flex justify-between items-end">
+          <div>
+            <p className="text-teal-100 text-xs mb-1">当前汇率</p>
+            <p className="font-mono font-medium">1 CNY = {state.exchangeRate} {state.currencyCode}</p>
+          </div>
+          <div className="text-right">
+             <p className="text-teal-100 text-xs mb-1">总支出</p>
+             <p className="text-2xl font-bold">
+               {new Intl.NumberFormat('id-ID', { style: 'currency', currency: state.currencyCode, maximumFractionDigits: 0 }).format(state.expenses.reduce((sum, e) => sum + (e.amount || (e as any).amountIDR || 0), 0))}
+             </p>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Card */}
+      <main className="mx-4 -mt-8 relative z-20 bg-white rounded-2xl shadow-sm min-h-[60vh] flex flex-col">
+        {/* Tabs */}
+        <div className="flex border-b">
+          <button 
+            onClick={() => setActiveTab('summary')}
+            className={`flex-1 py-4 text-center font-medium text-sm transition-colors ${activeTab === 'summary' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            概览 & 结算
+          </button>
+          <button 
+            onClick={() => setActiveTab('expenses')}
+            className={`flex-1 py-4 text-center font-medium text-sm transition-colors ${activeTab === 'expenses' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            账单明细 ({state.expenses.length})
           </button>
         </div>
 
-        {showLedgerMenu && (
-          <div className="absolute top-full left-0 right-0 bg-white text-gray-800 shadow-xl border-b z-50">
-            <div className="max-w-3xl mx-auto p-2">
-              {ledgers.map(l => (
-                <button key={l.id} onClick={() => handleSwitchLedger(l.id)} className={`w-full text-left px-4 py-3 rounded-lg flex justify-between ${activeId === l.id ? 'bg-teal-50 text-teal-700 font-bold' : ''}`}>
-                  <span>{l.name}</span>
-                  {activeId === l.id && <CheckCircle size={16} />}
-                </button>
-              ))}
-              <button onClick={handleCreateNewLedger} className="flex items-center justify-center gap-2 w-full py-3 mt-2 text-blue-600 border-t">
-                <FolderPlus size={18} /> 新建账本
-              </button>
-            </div>
-            <div className="fixed inset-0 z-[-1] bg-black/20" onClick={() => setShowLedgerMenu(false)}></div>
-          </div>
-        )}
-      </header>
-
-      <main className="max-w-3xl mx-auto p-4">
-        {activeTab === 'summary' ? (
-          <Summary expenses={state.expenses} exchangeRate={state.exchangeRate} family1Count={state.family1Count} family2Count={state.family2Count} />
-        ) : (
-          <ExpenseList expenses={state.expenses} onDelete={(id) => setState(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }))} />
-        )}
+        {/* Tab Content */}
+        <div className="p-4 flex-1">
+          {activeTab === 'summary' ? (
+            <Summary 
+              state={state}
+            />
+          ) : (
+            <ExpenseList 
+              expenses={state.expenses} 
+              families={state.families}
+              currencyCode={state.currencyCode}
+              exchangeRate={state.exchangeRate}
+              onDelete={(id) => setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}))}
+            />
+          )}
+        </div>
       </main>
 
-      <div className="max-w-3xl mx-auto px-4 mt-8 border-t pt-6" data-html2canvas-ignore>
-        <h3 className="text-sm font-bold text-gray-400 mb-4 uppercase tracking-widest">账本设置</h3>
-        <div className="bg-white rounded-xl shadow-sm p-5 space-y-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">账本名称</label>
-            <input 
-              value={state.ledgerName}
-              onChange={e => setState(p => ({...p, ledgerName: e.target.value}))}
-              className="w-full border rounded-lg p-3 text-sm bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-             <div>
-                <label className="block text-xs text-gray-500 mb-1">家庭1人数</label>
-                <input 
-                  type="number" 
-                  value={state.family1Count || ''} 
-                  placeholder="0"
-                  onChange={e => {
-                    const val = parseInt(e.target.value);
-                    setState(p => ({...p, family1Count: isNaN(val) ? 0 : val}));
-                  }}
-                  className="w-full border rounded-lg p-3 text-sm bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" 
-                />
-             </div>
-             <div>
-                <label className="block text-xs text-gray-500 mb-1">家庭2人数</label>
-                <input 
-                  type="number" 
-                  value={state.family2Count || ''} 
-                  placeholder="0"
-                  onChange={e => {
-                    const val = parseInt(e.target.value);
-                    setState(p => ({...p, family2Count: isNaN(val) ? 0 : val}));
-                  }}
-                  className="w-full border rounded-lg p-3 text-sm bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none" 
-                />
-             </div>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1 flex justify-between">
-               <span>汇率 (1 CNY = ? IDR)</span>
-               <button onClick={handleRefreshRate} className="text-teal-600 flex items-center gap-1">
-                  <RefreshCw size={12} className={rateLoading ? "animate-spin" : ""} /> {rateLoading ? "获取中" : "获取最新"}
-               </button>
-            </label>
-            <input 
-              type="number" 
-              value={state.exchangeRate || ''} 
-              placeholder="0.00"
-              onChange={e => {
-                const val = parseFloat(e.target.value);
-                setState(p => ({...p, exchangeRate: isNaN(val) ? 0 : val}));
-              }}
-              className="w-full border rounded-lg p-3 text-sm bg-white text-gray-900 font-mono focus:ring-2 focus:ring-teal-500 outline-none" 
-            />
-          </div>
-
-          <div className="pt-4 border-t space-y-3">
-             <div className="grid grid-cols-2 gap-3">
-               <button onClick={() => exportToMarkdown(state)} className="py-2 text-sm border rounded-lg bg-gray-50 flex items-center justify-center gap-2 text-gray-700 hover:bg-gray-100"><FileText size={16}/> Markdown</button>
-               <button onClick={async () => {setExportLoading(true); await exportToPDF('printable-area', state.ledgerName); setExportLoading(false);}} className="py-2 text-sm border rounded-lg bg-red-50 text-red-700 flex items-center justify-center gap-2 hover:bg-red-100"><Download size={16}/> {exportLoading ? "生成中" : "PDF 报表"}</button>
-             </div>
-             <div className="grid grid-cols-2 gap-3">
-               <button onClick={handleExportJSON} className="py-2 text-sm border rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center gap-2 hover:bg-teal-100"><Wallet size={16}/> 备份数据</button>
-               <button onClick={handleImportJSON} className="py-2 text-sm border rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center gap-2 hover:bg-blue-100"><FileInput size={16}/> 恢复数据</button>
-             </div>
-          </div>
-        </div>
+      {/* Export Actions */}
+      <div className="mx-4 mt-6 grid grid-cols-3 gap-3 mb-24">
+        <button onClick={handleExportJSON} className="flex flex-col items-center justify-center bg-white p-3 rounded-xl shadow-sm text-gray-600 text-xs gap-1 hover:bg-gray-50">
+          <FolderPlus size={20} className="text-blue-500" />
+          备份数据
+        </button>
+        <button onClick={handleImportJSON} className="flex flex-col items-center justify-center bg-white p-3 rounded-xl shadow-sm text-gray-600 text-xs gap-1 hover:bg-gray-50">
+          <FileInput size={20} className="text-purple-500" />
+          恢复数据
+        </button>
+        <button onClick={handleExportMarkdown} className="flex flex-col items-center justify-center bg-white p-3 rounded-xl shadow-sm text-gray-600 text-xs gap-1 hover:bg-gray-50">
+          <FileText size={20} className="text-green-500" />
+          导出 Markdown
+        </button>
+         <button onClick={handleExportPDF} disabled={exportLoading} className="col-span-3 flex items-center justify-center bg-gray-800 text-white p-3 rounded-xl shadow-sm text-sm font-medium gap-2 hover:bg-gray-900">
+          {exportLoading ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+          导出完整 PDF 报告
+        </button>
       </div>
 
-      <button onClick={() => setShowAddModal(true)} className="fixed bottom-24 right-6 bg-teal-600 text-white p-4 rounded-full shadow-lg z-40 active:scale-95 transition-transform" data-html2canvas-ignore>
+      {/* Floating Add Button */}
+      <button 
+        onClick={() => setShowAddModal(true)}
+        className="fixed bottom-6 right-6 w-14 h-14 bg-teal-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-teal-700 hover:scale-105 transition-all z-40"
+      >
         <Plus size={28} />
       </button>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t h-16 flex justify-around items-center z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]" data-html2canvas-ignore>
-        <button onClick={() => setActiveTab('summary')} className={`w-full h-full text-sm font-medium transition-colors ${activeTab === 'summary' ? 'text-teal-600 bg-teal-50/50' : 'text-gray-400'}`}>概览</button>
-        <div className="w-px h-8 bg-gray-200"></div>
-        <button onClick={() => setActiveTab('expenses')} className={`w-full h-full text-sm font-medium transition-colors ${activeTab === 'expenses' ? 'text-teal-600 bg-teal-50/50' : 'text-gray-400'}`}>账单 ({state.expenses.length})</button>
-      </nav>
-
+      {/* Modals */}
       {showAddModal && (
         <ExpenseForm 
-          onAddExpense={(newExp) => { setState(p => ({ ...p, expenses: [...p.expenses, { ...newExp, id: crypto.randomUUID() }] })); setShowAddModal(false); }} 
-          onClose={() => setShowAddModal(false)} 
+          families={state.families}
+          currencyCode={state.currencyCode}
+          onAddExpense={(expense) => setState(prev => ({
+            ...prev, 
+            expenses: [...prev.expenses, { ...expense, id: `e${Date.now()}` }]
+          }))}
+          onClose={() => setShowAddModal(false)}
         />
       )}
+
+      {showSettingsModal && (
+        <SettingsModal 
+          ledgerName={state.ledgerName}
+          families={state.families}
+          destination={state.destination}
+          onSave={handleSaveSettings}
+          onClose={() => setShowSettingsModal(false)}
+        />
+      )}
+
+      {/* Hidden PDF Export Container */}
+      <div id="pdf-export-container" className="fixed top-0 left-[200vw] w-[800px] bg-white p-8 z-[-1]">
+        <h1 className="text-3xl font-bold mb-2 text-teal-800">{state.ledgerName} - 完整报告</h1>
+        <p className="text-gray-500 mb-6">导出时间: {new Date().toLocaleString()}</p>
+        
+        <div className="mb-8">
+          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">概览与结算</h2>
+          <Summary state={state} />
+        </div>
+
+        <div>
+          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">账单明细</h2>
+          <ExpenseList 
+            expenses={state.expenses} 
+            families={state.families}
+            currencyCode={state.currencyCode}
+            exchangeRate={state.exchangeRate}
+            onDelete={() => {}} // No-op for export view
+          />
+        </div>
+      </div>
     </div>
   );
 };

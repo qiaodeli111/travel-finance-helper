@@ -1,27 +1,36 @@
-import React, { useState } from 'react';
-import { Category, Family, Expense, FamilyLabels } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Category, Family, Expense } from '../types';
 import { Sparkles, X, Calendar } from 'lucide-react';
 
 interface ExpenseFormProps {
+  families: Family[];
+  currencyCode: string;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
   onClose: () => void;
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddExpense, onClose }) => {
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode, onAddExpense, onClose }) => {
   const [description, setDescription] = useState('');
-  const [amountIDR, setAmountIDR] = useState<string>('');
+  const [amount, setAmount] = useState<string>('');
   const [category, setCategory] = useState<Category>(Category.FOOD);
-  const [payer, setPayer] = useState<Family>(Family.F1);
+  const [payerId, setPayerId] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Set default payer
+  useEffect(() => {
+    if (families.length > 0 && !payerId) {
+      setPayerId(families[0].id);
+    }
+  }, [families, payerId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !amountIDR || !date) return;
+    if (!description || !amount || !date || !payerId) return;
     onAddExpense({
       description,
-      amountIDR: parseFloat(amountIDR),
+      amount: parseFloat(amount),
       category,
-      payer,
+      payerId,
       date: new Date(date).getTime(),
     });
     onClose();
@@ -60,23 +69,24 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddExpense, onClose 
                 required
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="例如：乌布午餐"
+                placeholder="例如：午餐"
                 className="w-full px-4 py-3 border rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">金额 (IDR 印尼盾)</label>
+              <label className="block text-xs font-bold text-gray-500 uppercase mb-1">金额 ({currencyCode})</label>
               <div className="relative">
-                <span className="absolute left-3 top-3 text-gray-400 font-semibold">Rp</span>
+                <span className="absolute left-3 top-3 text-gray-400 font-semibold">{currencyCode}</span>
                 <input
                   type="number"
                   required
                   min="0"
-                  value={amountIDR}
-                  onChange={(e) => setAmountIDR(e.target.value)}
-                  placeholder="输入印尼盾金额"
-                  className="w-full pl-10 pr-4 py-3 border rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none font-mono font-bold"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="输入金额"
+                  className="w-full pl-14 pr-4 py-3 border rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none font-mono font-bold"
                 />
               </div>
             </div>
@@ -98,12 +108,13 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAddExpense, onClose 
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">谁付的钱</label>
                 <select
-                  value={payer}
-                  onChange={(e) => setPayer(e.target.value as Family)}
+                  value={payerId}
+                  onChange={(e) => setPayerId(e.target.value)}
                   className="w-full px-3 py-3 border rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-teal-500 outline-none"
                 >
-                  <option value={Family.F1}>{FamilyLabels[Family.F1]}</option>
-                  <option value={Family.F2}>{FamilyLabels[Family.F2]}</option>
+                  {families.map(f => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
                 </select>
               </div>
             </div>

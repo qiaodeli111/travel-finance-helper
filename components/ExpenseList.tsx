@@ -4,10 +4,15 @@ import { Trash2, Receipt } from 'lucide-react';
 
 interface ExpenseListProps {
   expenses: Expense[];
+  families: Family[];
+  currencyCode: string;
+  exchangeRate: number;
   onDelete: (id: string) => void;
 }
 
-export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete }) => {
+const COLORS = ['bg-blue-500', 'bg-orange-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500'];
+
+export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, currencyCode, exchangeRate, onDelete }) => {
   if (expenses.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-gray-400">
@@ -17,24 +22,39 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete }) 
     );
   }
 
-  // Changed to ascending order (early to late)
+  // Sort by date ascending
   const sortedExpenses = [...expenses].sort((a, b) => a.date - b.date);
-  const formatIDR = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+  
+  const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(val);
+  const formatCNY = (val: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 2 }).format(val);
 
   return (
     <div className="space-y-3">
       {sortedExpenses.map((expense) => {
-        const isF1 = expense.payer === Family.F1 || (typeof expense.payer === 'string' && expense.payer.includes('Family 1'));
+        // Resolve Payer
+        let payerId = expense.payerId;
+        if (!payerId && (expense as any).payer) {
+             // Legacy fallback
+             payerId = (expense as any).payer === 'Family 1' ? 'f1' : 'f2';
+        }
         
+        const familyIndex = families.findIndex(f => f.id === payerId);
+        const familyName = familyIndex >= 0 ? families[familyIndex].name : '未知';
+        const colorClass = COLORS[familyIndex % COLORS.length] || 'bg-gray-500';
+        
+        // Resolve Amount
+        const amount = expense.amount !== undefined ? expense.amount : (expense as any).amountIDR;
+        const cnyAmount = amount / exchangeRate;
+
         return (
           <div key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow flex justify-between items-center group">
             <div className="flex gap-4 items-center overflow-hidden">
               {/* Family Avatar */}
               <div 
-                 className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 
-                ${isF1 ? 'bg-blue-500' : 'bg-orange-500'}`}
+                 className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${colorClass}`}
+                 title={familyName}
               >
-                <span>{isF1 ? '家1' : '家2'}</span>
+                <span>{familyName.slice(0, 2)}</span>
               </div>
               
               <div className="min-w-0">
@@ -47,9 +67,14 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete }) 
             </div>
 
             <div className="flex items-center gap-2 pl-2 shrink-0">
-              <span className="font-bold text-gray-700 font-mono text-sm sm:text-base whitespace-nowrap">
-                {formatIDR(expense.amountIDR)}
-              </span>
+              <div className="text-right">
+                <div className="font-bold text-gray-700 font-mono text-sm sm:text-base whitespace-nowrap">
+                  {formatCurrency(amount)}
+                </div>
+                <div className="text-xs text-gray-400">
+                  ≈ {formatCNY(cnyAmount)}
+                </div>
+              </div>
               <button 
                 onClick={() => {
                   if(window.confirm('确定删除这条账单吗？')) onDelete(expense.id);
