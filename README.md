@@ -1,3 +1,9 @@
+# Demo站
+
+请直接访问了解项目功能。本站可放心使用，所有数据将会保留在本地，不涉及任何隐私数据上传到服务器端。
+
+https://travel-finance-helper.netlify.app/
+
 # 项目介绍
 
 项目由Gemini生成，主要解决多个家庭一起出行账务混乱不易拆分的问题。
@@ -14,13 +20,9 @@
 
 4. 结算方案可导出为 pdf 或 markdown 格式文档，方便与他人核对账单
 
-# Demo站
 
-本站可放心使用，所有数据将会保留在本地，不涉及任何隐私数据上传到服务器端。
 
-https://travel-finance-helper.netlify.app/
-
-# 国内使用方式
+# 国内部署方式
 
 本地使用请查看最下面一部分：`Run Locally`。在线部署推荐netlify，如下：
 
@@ -30,7 +32,6 @@ https://travel-finance-helper.netlify.app/
 <img width="240" height="133" alt="image" src="https://github.com/user-attachments/assets/f8219ce3-c4e5-4416-ae9a-f7fa94f0f2b6" />
 
 
-由Google AI Studio生成
 
 <div align="center">
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
