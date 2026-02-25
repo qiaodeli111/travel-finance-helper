@@ -1,0 +1,5 @@
+{
+  "name": "巴厘岛分账助手",
+  "description": "巴厘岛旅行费用记录与分账工具，支持两家庭不同人数比例分摊（默认4:2），自动转换汇率。",
+  "requestFramePermissions": []
+}
