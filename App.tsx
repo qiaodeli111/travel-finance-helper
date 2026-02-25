@@ -280,8 +280,8 @@ const App: React.FC = () => {
       <div className="absolute top-0 left-0 right-0 h-64 bg-teal-600 z-0" />
 
       {/* Header Content Layer - High Z-Index for Dropdowns */}
-      <header className="relative z-30 p-4 pb-12 text-white">
-        <div className="flex justify-between items-center mb-4">
+      <header className="relative z-30 p-4 pb-12 text-white pointer-events-none">
+        <div className="flex justify-between items-center mb-4 pointer-events-auto">
           <div className="relative">
             <button 
               onClick={() => setShowLedgerMenu(!showLedgerMenu)}
@@ -338,7 +338,7 @@ const App: React.FC = () => {
         </div>
 
         {/* Stats Summary (Mini) */}
-        <div className="flex justify-between items-end">
+        <div className="flex justify-between items-end pointer-events-auto">
           <div>
             <p className="text-teal-100 text-xs mb-1">当前汇率</p>
             <p className="font-mono font-medium">1 CNY = {state.exchangeRate} {state.currencyCode}</p>
@@ -358,13 +358,13 @@ const App: React.FC = () => {
         <div className="flex border-b">
           <button 
             onClick={() => setActiveTab('summary')}
-            className={`flex-1 py-4 text-center font-medium text-sm transition-colors ${activeTab === 'summary' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
+            className={`flex-1 py-5 text-center font-medium text-sm transition-colors cursor-pointer ${activeTab === 'summary' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             概览 & 结算
           </button>
           <button 
             onClick={() => setActiveTab('expenses')}
-            className={`flex-1 py-4 text-center font-medium text-sm transition-colors ${activeTab === 'expenses' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
+            className={`flex-1 py-5 text-center font-medium text-sm transition-colors cursor-pointer ${activeTab === 'expenses' ? 'text-teal-600 border-b-2 border-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
           >
             账单明细 ({state.expenses.length})
           </button>
