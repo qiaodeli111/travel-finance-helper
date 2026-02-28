@@ -5,13 +5,23 @@ export interface Family {
 }
 
 export enum Category {
-  ACCOMMODATION = '住宿',
-  TRANSPORT = '交通',
-  FOOD = '餐饮',
-  ENTERTAINMENT = '娱乐',
-  SHOPPING = '购物',
-  OTHER = '其他',
+  ACCOMMODATION = 'Accommodation',
+  TRANSPORT = 'Transport',
+  FOOD = 'Food',
+  ENTERTAINMENT = 'Entertainment',
+  SHOPPING = 'Shopping',
+  OTHER = 'Other',
 }
+
+// Legacy Chinese categories for migration
+export const CATEGORY_MIGRATION: Record<string, Category> = {
+  '住宿': Category.ACCOMMODATION,
+  '交通': Category.TRANSPORT,
+  '餐饮': Category.FOOD,
+  '娱乐': Category.ENTERTAINMENT,
+  '购物': Category.SHOPPING,
+  '其他': Category.OTHER,
+};
 
 export interface Expense {
   id: string;
@@ -25,10 +35,12 @@ export interface Expense {
 export interface AppState {
   ledgerName: string;
   expenses: Expense[];
-  exchangeRate: number; // 1 CNY = X Target Currency
+  exchangeRate: number; // 1 Base Currency = X Target Currency
   families: Family[];
-  currencyCode: string; // e.g. 'IDR'
+  currencyCode: string; // e.g. 'IDR' - destination currency
   destination: string; // e.g. 'Indonesia'
+  baseCurrency: string; // e.g. 'CNY' - settlement currency
+  originCountry: string; // e.g. '中国' - where the users are from
   lastUpdated: number;
 }
 
@@ -67,3 +79,36 @@ export const COUNTRIES = [
   { name: '中国台湾', currency: 'TWD', label: '新台币' },
   { name: '中国香港', currency: 'HKD', label: '港币' },
 ];
+
+// Origin countries - where users are from (determines settlement currency and UI language)
+export const ORIGIN_COUNTRIES = [
+  { name: '中国', currency: 'CNY', language: 'zh' as const, label: '人民币' },
+  { name: '美国', currency: 'USD', language: 'en' as const, label: 'US Dollar' },
+  { name: '英国', currency: 'GBP', language: 'en' as const, label: 'British Pound' },
+  { name: '日本', currency: 'JPY', language: 'en' as const, label: 'Japanese Yen' },
+  { name: '韩国', currency: 'KRW', language: 'en' as const, label: 'Korean Won' },
+  { name: '新加坡', currency: 'SGD', language: 'en' as const, label: 'Singapore Dollar' },
+  { name: '澳大利亚', currency: 'AUD', language: 'en' as const, label: 'Australian Dollar' },
+  { name: '加拿大', currency: 'CAD', language: 'en' as const, label: 'Canadian Dollar' },
+  { name: '新西兰', currency: 'NZD', language: 'en' as const, label: 'New Zealand Dollar' },
+  { name: '德国', currency: 'EUR', language: 'en' as const, label: 'Euro' },
+  { name: '法国', currency: 'EUR', language: 'en' as const, label: 'Euro' },
+  { name: '意大利', currency: 'EUR', language: 'en' as const, label: 'Euro' },
+  { name: '西班牙', currency: 'EUR', language: 'en' as const, label: 'Euro' },
+  { name: '荷兰', currency: 'EUR', language: 'en' as const, label: 'Euro' },
+  { name: '瑞士', currency: 'CHF', language: 'en' as const, label: 'Swiss Franc' },
+  { name: '中国香港', currency: 'HKD', language: 'en' as const, label: 'Hong Kong Dollar' },
+  { name: '中国台湾', currency: 'TWD', language: 'en' as const, label: 'Taiwan Dollar' },
+  { name: '马来西亚', currency: 'MYR', language: 'en' as const, label: 'Malaysian Ringgit' },
+  { name: '泰国', currency: 'THB', language: 'en' as const, label: 'Thai Baht' },
+  { name: '印度', currency: 'INR', language: 'en' as const, label: 'Indian Rupee' },
+  { name: '巴西', currency: 'BRL', language: 'en' as const, label: 'Brazilian Real' },
+  { name: '墨西哥', currency: 'MXN', language: 'en' as const, label: 'Mexican Peso' },
+  { name: '俄罗斯', currency: 'RUB', language: 'en' as const, label: 'Russian Ruble' },
+  { name: '阿联酋', currency: 'AED', language: 'en' as const, label: 'UAE Dirham' },
+  { name: '沙特阿拉伯', currency: 'SAR', language: 'en' as const, label: 'Saudi Riyal' },
+  { name: '南非', currency: 'ZAR', language: 'en' as const, label: 'South African Rand' },
+  { name: '其他', currency: 'USD', language: 'en' as const, label: 'US Dollar (default)' },
+];
+
+export type OriginCountry = typeof ORIGIN_COUNTRIES[number];
