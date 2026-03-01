@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd D:/Projects/travel-finance-helper && npx tsc --noEmit services/firebaseConfig.ts 2>&1\",\"description\":\"Verify firebaseConfig.ts compiles\"}",
+  "error": "Exit code 2\nservices/firebaseConfig.ts(6,11): error TS1343: The 'import.meta' meta-property is only allowed when the '--module' option is 'es2020', 'es2022', 'esnext', 'system', 'node16', 'node18', or 'nodenext'.\r\nservices/firebaseConfig.ts(6,23): error TS2339: Property 'env' does not exist on type 'ImportMeta'.\r\nservices/firebaseConfig.ts(7,15): error TS1343: The 'import.meta' meta-property is only allowed when the '--module' option is 'es2020', 'es2022', 'esnext', 'system', 'node16', 'node18',...",
+  "timestamp": "2026-03-01T03:08:21.155Z",
+  "retry_count": 1
+}
