@@ -18,13 +18,37 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
   const [category, setCategory] = useState<Category>(Category.FOOD);
   const [payerId, setPayerId] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [sharedWithFamilyIds, setSharedWithFamilyIds] = useState<string[]>([]);
 
-  // Set default payer
+  // Set default payer and default share with all other families
   useEffect(() => {
     if (families.length > 0 && !payerId) {
       setPayerId(families[0].id);
     }
   }, [families, payerId]);
+
+  // Update shared families when payer changes - default to all other families
+  useEffect(() => {
+    const otherFamilyIds = families.filter(f => f.id !== payerId).map(f => f.id);
+    setSharedWithFamilyIds(otherFamilyIds);
+  }, [payerId, families]);
+
+  const handleSharedWithToggle = (familyId: string) => {
+    setSharedWithFamilyIds(prev =>
+      prev.includes(familyId)
+        ? prev.filter(id => id !== familyId)
+        : [...prev, familyId]
+    );
+  };
+
+  const handleSelectAllShared = () => {
+    const allOtherFamilyIds = families.filter(f => f.id !== payerId).map(f => f.id);
+    setSharedWithFamilyIds(allOtherFamilyIds);
+  };
+
+  const handleDeselectAllShared = () => {
+    setSharedWithFamilyIds([]);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +59,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
       category,
       payerId,
       date: new Date(date).getTime(),
+      sharedWithFamilyIds,
     });
     onClose();
   };
@@ -144,6 +169,52 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
                     <option key={f.id} value={f.id}>{f.name}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* Share With Field */}
+            <div>
+              <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                <Users size={14} className="text-sky-500" />
+                {t('shareWith')}
+              </label>
+              <p className="text-xs text-gray-400 mb-3">{t('shareWithHint')}</p>
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={handleSelectAllShared}
+                  className="px-3 py-1.5 text-xs font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
+                >
+                  {t('selectAll')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeselectAllShared}
+                  className="px-3 py-1.5 text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  {t('deselectAll')}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {families.filter(f => f.id !== payerId).map(family => (
+                  <label
+                    key={family.id}
+                    className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                      sharedWithFamilyIds.includes(family.id)
+                        ? 'border-sky-500 bg-sky-50'
+                        : 'border-gray-200 bg-gray-50 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sharedWithFamilyIds.includes(family.id)}
+                      onChange={() => handleSharedWithToggle(family.id)}
+                      className="w-4 h-4 text-sky-600 rounded focus:ring-sky-500"
+                    />
+                    <span className="font-medium text-gray-700">{family.name}</span>
+                    <span className="text-xs text-gray-400">({family.count} {t('persons')})</span>
+                  </label>
+                ))}
               </div>
             </div>
           </form>

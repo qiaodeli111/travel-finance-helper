@@ -21,11 +21,9 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
   }, 0);
   const totalCNY = totalAmount / exchangeRate;
 
-  // 2. Calculate Family Stats
-  const totalPeople = families.reduce((sum, f) => sum + f.count, 0);
-
+  // 2. Calculate Family Stats - Based on sharedWithFamilyIds per expense
   const familyStats = families.map(f => {
-    // Paid
+    // Paid - sum of all expenses paid by this family
     const paid = expenses
       .filter(e => {
         if (e.payerId) return e.payerId === f.id;
@@ -34,9 +32,33 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
       })
       .reduce((sum, e) => sum + (e.amount || (e as any).amountIDR), 0);
 
-    // Share
-    const ratio = totalPeople > 0 ? f.count / totalPeople : 0;
-    const share = totalAmount * ratio;
+    // Share - calculated per expense based on sharedWithFamilyIds
+    let share = 0;
+    expenses.forEach(e => {
+      const amt = e.amount || (e as any).amountIDR;
+
+      // Determine which families share this expense
+      let sharingFamilyIds: string[];
+      if (e.sharedWithFamilyIds !== undefined) {
+        // New format: use sharedWithFamilyIds + payer's family
+        sharingFamilyIds = [e.payerId, ...e.sharedWithFamilyIds];
+      } else {
+        // Legacy: all families share
+        sharingFamilyIds = families.map(fm => fm.id);
+      }
+
+      // Check if this family is part of the sharing group
+      if (sharingFamilyIds.includes(f.id)) {
+        // Calculate total people in the sharing group
+        const sharingFamilies = families.filter(fm => sharingFamilyIds.includes(fm.id));
+        const sharingPeople = sharingFamilies.reduce((sum, fm) => sum + fm.count, 0);
+
+        // This family's share = amount * (this family's people / total sharing people)
+        if (sharingPeople > 0) {
+          share += amt * (f.count / sharingPeople);
+        }
+      }
+    });
 
     // Balance (Positive = Paid more than share = Should Receive)
     const balance = paid - share;
@@ -160,7 +182,7 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-gray-500 text-sm">{s.from} {t('pays')} {s.to}</span>
-                  <span className="text-xl font-bold text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-xl">{formatCurrency(s.amount)}</span>
+                  <span className="text-xl font-bold text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-xl">{formatBaseCurrency(s.amount / exchangeRate)}</span>
                 </div>
               </div>
             ))}

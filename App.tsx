@@ -448,6 +448,7 @@ const App: React.FC = () => {
               families={state.families}
               currencyCode={state.currencyCode}
               exchangeRate={state.exchangeRate}
+              baseCurrency={state.baseCurrency}
               onDelete={(id) => setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}))}
             />
           )}
@@ -509,21 +510,22 @@ const App: React.FC = () => {
 
       {/* Hidden PDF Export Container */}
       <div id="pdf-export-container" className="fixed top-0 left-[200vw] w-[800px] bg-white p-8 z-[-1]">
-        <h1 className="text-3xl font-bold mb-2 text-sky-800">{state.ledgerName} - 完整报告</h1>
-        <p className="text-gray-500 mb-6">导出时间: {new Date().toLocaleString()}</p>
+        <h1 className="text-3xl font-bold mb-2 text-sky-800">{state.ledgerName} - {t('exportTitle')}</h1>
+        <p className="text-gray-500 mb-6">{t('exportTime')}: {new Date().toLocaleString()}</p>
 
         <div className="mb-8">
-          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">概览与结算</h2>
+          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">{t('summaryTab')}</h2>
           <Summary state={state} />
         </div>
 
         <div>
-          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">账单明细</h2>
+          <h2 className="text-xl font-bold mb-4 border-b pb-2 text-gray-700">{t('expensesTab')}</h2>
           <ExpenseList
             expenses={state.expenses}
             families={state.families}
             currencyCode={state.currencyCode}
             exchangeRate={state.exchangeRate}
+            baseCurrency={state.baseCurrency}
             onDelete={() => {}} // No-op for export view
           />
         </div>

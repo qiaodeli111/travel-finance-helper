@@ -91,6 +91,10 @@ export const translations = {
     amountPlaceholder: 'Enter amount',
     category: 'Category',
     payer: 'Who Paid',
+    shareWith: 'Share With',
+    shareWithHint: 'Select families to share this expense',
+    selectAll: 'Select All',
+    deselectAll: 'Deselect All',
     saveExpense: 'Save Expense',
 
     // Categories
@@ -229,6 +233,10 @@ export const translations = {
     amountPlaceholder: '输入金额',
     category: '类别',
     payer: '谁付的钱',
+    shareWith: '与谁共享',
+    shareWithHint: '选择参与分摊的家庭',
+    selectAll: '全选',
+    deselectAll: '取消全选',
     saveExpense: '确认保存',
 
     // Categories

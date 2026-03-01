@@ -1,6 +1,6 @@
 import React from 'react';
 import { Expense, Family } from '../types';
-import { Trash2, Receipt, Calendar, CreditCard } from 'lucide-react';
+import { Trash2, Receipt, Calendar, CreditCard, Users } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 
 interface ExpenseListProps {
@@ -8,13 +8,14 @@ interface ExpenseListProps {
   families: Family[];
   currencyCode: string;
   exchangeRate: number;
+  baseCurrency?: string;
   onDelete: (id: string) => void;
 }
 
 const COLORS = ['bg-sky-500', 'bg-orange-500', 'bg-emerald-500', 'bg-purple-500', 'bg-pink-500'];
 
-export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, currencyCode, exchangeRate, onDelete }) => {
-  const { t } = useTranslation();
+export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, currencyCode, exchangeRate, baseCurrency = 'CNY', onDelete }) => {
+  const { t, language } = useTranslation();
 
   if (expenses.length === 0) {
     return (
@@ -32,7 +33,8 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
   const sortedExpenses = [...expenses].sort((a, b) => a.date - b.date);
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(val);
-  const formatCNY = (val: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY', maximumFractionDigits: 2 }).format(val);
+  const formatBaseCurrency = (val: number) => new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: baseCurrency, maximumFractionDigits: 2 }).format(val);
+  const formatDate = (timestamp: number) => new Date(timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US');
 
   return (
     <div className="space-y-3">
@@ -46,11 +48,16 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
 
         const familyIndex = families.findIndex(f => f.id === payerId);
         const familyName = familyIndex >= 0 ? families[familyIndex].name : 'Unknown';
-        const colorClass = COLORS[familyIndex % COLORS.length] || 'bg-gray-500';
+        const colorClass = familyIndex >= 0 ? COLORS[familyIndex % COLORS.length] : 'bg-gray-500';
 
         // Resolve Amount
         const amount = expense.amount !== undefined ? expense.amount : (expense as any).amountIDR;
         const cnyAmount = amount / exchangeRate;
+
+        // Resolve Shared Families
+        const sharedWithIds = expense.sharedWithFamilyIds || [];
+        const sharingFamilyIds = [payerId, ...sharedWithIds];
+        const sharedFamilies = families.filter(f => sharingFamilyIds.includes(f.id));
 
         return (
           <div key={expense.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all group">
@@ -70,9 +77,29 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
                     <span className="bg-gray-100 px-2.5 py-1 rounded-lg font-medium whitespace-nowrap">{expense.category}</span>
                     <span className="flex items-center gap-1 whitespace-nowrap">
                       <Calendar size={12} />
-                      {new Date(expense.date).toLocaleDateString('zh-CN')}
+                      {formatDate(expense.date)}
                     </span>
                   </div>
+                  {/* Shared Families */}
+                  {sharedFamilies.length > 0 && (
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <Users size={12} className="text-gray-400" />
+                      <div className="flex gap-1 flex-wrap">
+                        {sharedFamilies.map((f, idx) => (
+                          <span
+                            key={f.id}
+                            className={`text-xs px-2 py-0.5 rounded-full ${
+                              f.id === payerId
+                                ? 'bg-sky-100 text-sky-700 font-medium'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}
+                          >
+                            {f.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -83,7 +110,7 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
                   </div>
                   <div className="text-xs text-gray-400 flex items-center gap-1">
                     <CreditCard size={10} />
-                    ≈ {formatCNY(cnyAmount)}
+                    ≈ {formatBaseCurrency(cnyAmount)}
                   </div>
                 </div>
                 <button

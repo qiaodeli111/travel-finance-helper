@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Save, Settings, MapPin, Users, BookOpen, Globe, Languages } from 'lucide-react';
 import { Family, COUNTRIES, ORIGIN_COUNTRIES } from '../types';
-import { useTranslation } from '../i18n/useTranslation';
+import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
 import { LANGUAGE_NAMES, Language } from '../i18n/translations';
 
 interface SettingsModalProps {
@@ -151,7 +151,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               {ORIGIN_COUNTRIES.map(c => (
                 <option key={c.name} value={c.name}>
-                  {c.name} ({c.currency} - {c.label})
+                  {getCountryDisplayText(c.name, language)}
                 </option>
               ))}
             </select>
@@ -173,7 +173,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all appearance-none cursor-pointer"
             >
               {COUNTRIES.map(c => (
-                <option key={c.name} value={c.name}>{c.name} ({c.currency})</option>
+                <option key={c.name} value={c.name}>{getCountryDisplayText(c.name, language)}</option>
               ))}
             </select>
           </div>
