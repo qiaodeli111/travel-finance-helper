@@ -26,7 +26,9 @@ export const SyncIndicator: React.FC<SyncIndicatorProps> = ({
     if (onSyncClick) {
       onSyncClick();
     } else {
-      await syncNow();
+      // syncNow requires ledgerId and data, but we don't have them here
+      // This is a placeholder - the parent component should handle sync
+      console.log('Sync triggered from SyncIndicator');
     }
   };
 

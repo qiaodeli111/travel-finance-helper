@@ -83,7 +83,8 @@ export const getCategoryTranslation = (category: string, language: Language): st
 
   const key = categoryMap[category];
   if (key) {
-    return translations[language][key];
+    const text = translations[language][key];
+    return typeof text === 'string' ? text : category;
   }
   return category;
 };

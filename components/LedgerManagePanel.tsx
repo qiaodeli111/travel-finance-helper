@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, BookOpen, MapPin, Users, Globe, Cloud, CloudOff, Star, StarOff, Trash2, Loader2 } from 'lucide-react';
+import { X, BookOpen, MapPin, Users, Globe, Cloud, CloudOff, Star, StarOff, Trash2, Loader2, Archive, ArchiveRestore, User, AlertTriangle } from 'lucide-react';
 import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useCloudSync } from '../src/contexts/CloudSyncContext';
 import { loadLedger, deleteLedger } from '../services/storageService';
+import { updateLedger, deleteLedger as deleteCloudLedger } from '../services/firestoreService';
 import { AppState, Family } from '../types';
 
 interface LedgerMeta {
@@ -13,6 +14,9 @@ interface LedgerMeta {
   isDefault?: boolean;
   isCloudSynced?: boolean;
   ownerId?: string;
+  ownerDisplayName?: string;
+  isLocal?: boolean;
+  status?: 'active' | 'archived';
   members?: string[];
 }
 
@@ -25,6 +29,8 @@ interface LedgerManagePanelProps {
   onSetDefault: (id: string) => void;
   onDelete: (id: string) => void;
   onRefresh: () => void;
+  onArchive?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
 }
 
 export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
@@ -35,7 +41,9 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
   onSelect,
   onSetDefault,
   onDelete,
-  onRefresh
+  onRefresh,
+  onArchive,
+  onUnarchive
 }) => {
   const { t, language } = useTranslation();
   const { user } = useAuth();
@@ -43,6 +51,9 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
   const [selectedLedger, setSelectedLedger] = useState<LedgerMeta | null>(null);
   const [ledgerData, setLedgerData] = useState<AppState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
 
   useEffect(() => {
     if (selectedLedger) {
@@ -55,6 +66,47 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleString();
+  };
+
+  const isOwner = (ledger: LedgerMeta) => {
+    return ledger.ownerId && user?.uid === ledger.ownerId;
+  };
+
+  const handleArchive = async () => {
+    if (!selectedLedger || !onArchive) return;
+    setArchiving(true);
+    try {
+      onArchive(selectedLedger.id);
+      setSelectedLedger({
+        ...selectedLedger,
+        status: 'archived'
+      });
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleUnarchive = async () => {
+    if (!selectedLedger || !onUnarchive) return;
+    setArchiving(true);
+    try {
+      onUnarchive(selectedLedger.id);
+      setSelectedLedger({
+        ...selectedLedger,
+        status: 'active'
+      });
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (!selectedLedger) return;
+    if (deleteConfirmName !== selectedLedger.name) return;
+    onDelete(selectedLedger.id);
+    setShowDeleteConfirm(false);
+    setDeleteConfirmName('');
+    setSelectedLedger(null);
   };
 
   return (
@@ -111,14 +163,37 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
           <div className="w-1/2 p-4 overflow-y-auto">
             {selectedLedger && ledgerData ? (
               <div className="space-y-4">
-                <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
+                  {selectedLedger.status === 'archived' && (
+                    <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs font-medium rounded-lg flex items-center gap-1">
+                      <Archive size={12} />
+                      {t('archived', 'Archived')}
+                    </span>
+                  )}
+                </div>
 
-                {/* Status */}
+                {/* Owner Info */}
+                {selectedLedger.ownerDisplayName && (
+                  <div className="flex items-center gap-2 p-3 bg-sky-50 rounded-xl">
+                    <User size={16} className="text-sky-500" />
+                    <span className="text-sm text-gray-600">
+                      {t('createdBy')}: <span className="font-medium text-gray-800">{selectedLedger.ownerDisplayName}</span>
+                    </span>
+                  </div>
+                )}
+
+                {/* Local/Cloud Status */}
                 <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
-                  {selectedLedger.isCloudSynced ? (
+                  {selectedLedger.isLocal ? (
+                    <>
+                      <CloudOff size={20} className="text-gray-400" />
+                      <span className="text-gray-500 font-medium">{t('localLedger')}</span>
+                    </>
+                  ) : selectedLedger.isCloudSynced ? (
                     <>
                       <Cloud size={20} className="text-sky-500" />
-                      <span className="text-sky-600 font-medium">{t('cloudSyncEnabled')}</span>
+                      <span className="text-sky-600 font-medium">{t('onlineLedger')}</span>
                     </>
                   ) : (
                     <>
@@ -164,12 +239,15 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
 
                 {/* Actions */}
                 <div className="space-y-2 pt-4">
-                  <button
-                    onClick={() => onSelect(selectedLedger.id)}
-                    className="w-full py-2 bg-sky-500 text-white rounded-xl font-medium hover:bg-sky-600 transition-colors"
-                  >
-                    {t('open', 'Open')}
-                  </button>
+                  {selectedLedger.status !== 'archived' && (
+                    <button
+                      onClick={() => onSelect(selectedLedger.id)}
+                      className="w-full py-2 bg-sky-500 text-white rounded-xl font-medium hover:bg-sky-600 transition-colors"
+                    >
+                      {t('open', 'Open')}
+                    </button>
+                  )}
+
                   <button
                     onClick={() => onSetDefault(selectedLedger.id)}
                     className="w-full py-2 bg-yellow-50 text-yellow-600 rounded-xl font-medium hover:bg-yellow-100 transition-colors flex items-center justify-center gap-2"
@@ -177,13 +255,83 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
                     {selectedLedger.isDefault ? <StarOff size={18} /> : <Star size={18} />}
                     {selectedLedger.isDefault ? t('removeDefault', 'Remove Default') : t('setDefault', 'Set as Default')}
                   </button>
-                  {activeId !== selectedLedger.id && (
+
+                  {/* Archive/Unarchive - Only for owners */}
+                  {isOwner(selectedLedger) && onArchive && (
+                    selectedLedger.status === 'archived' ? (
+                      <button
+                        onClick={handleUnarchive}
+                        disabled={archiving}
+                        className="w-full py-2 bg-green-50 text-green-600 rounded-xl font-medium hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                      >
+                        {archiving ? <Loader2 size={18} className="animate-spin" /> : <ArchiveRestore size={18} />}
+                        {t('unarchive', 'Unarchive')}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleArchive}
+                        disabled={archiving}
+                        className="w-full py-2 bg-orange-50 text-orange-600 rounded-xl font-medium hover:bg-orange-100 transition-colors flex items-center justify-center gap-2"
+                      >
+                        {archiving ? <Loader2 size={18} className="animate-spin" /> : <Archive size={18} />}
+                        {t('archive', 'Archive')}
+                      </button>
+                    )
+                  )}
+
+                  {/* Delete - Only for owners and not active ledger */}
+                  {isOwner(selectedLedger) && activeId !== selectedLedger.id && (
+                    showDeleteConfirm ? (
+                      <div className="space-y-2 p-3 bg-red-50 rounded-xl">
+                        <div className="flex items-center gap-2 text-red-600 text-sm">
+                          <AlertTriangle size={16} />
+                          <span>{t('deleteConfirmMessage', 'Type ledger name to confirm:')}</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={deleteConfirmName}
+                          onChange={(e) => setDeleteConfirmName(e.target.value)}
+                          placeholder={selectedLedger.name}
+                          className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setShowDeleteConfirm(false);
+                              setDeleteConfirmName('');
+                            }}
+                            className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium"
+                          >
+                            {t('cancel')}
+                          </button>
+                          <button
+                            onClick={handleDelete}
+                            disabled={deleteConfirmName !== selectedLedger.name}
+                            className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                          >
+                            {t('delete', 'Delete')}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Trash2 size={18} />
+                        {t('deleteLedger', 'Delete Ledger')}
+                      </button>
+                    )
+                  )}
+
+                  {/* Leave ledger for non-owners */}
+                  {!isOwner(selectedLedger) && activeId !== selectedLedger.id && (
                     <button
                       onClick={() => onDelete(selectedLedger.id)}
                       className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
                     >
                       <Trash2 size={18} />
-                      {t('removeMember')}
+                      {t('leaveLedger', 'Leave Ledger')}
                     </button>
                   )}
                 </div>

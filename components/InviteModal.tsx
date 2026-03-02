@@ -12,6 +12,7 @@ interface InviteModalProps {
   ledgerName?: string;
   inviteCode?: string; // For joining mode
   onJoinSuccess?: (ledgerId: string, ledgerName: string) => void;
+  forceJoinMode?: boolean; // Force enter join mode
 }
 
 type ExpiresOption = '24h' | '7d' | 'never';
@@ -22,13 +23,14 @@ export const InviteModal: React.FC<InviteModalProps> = ({
   ledgerId,
   ledgerName,
   inviteCode: initialInviteCode,
-  onJoinSuccess
+  onJoinSuccess,
+  forceJoinMode
 }) => {
   const { t } = useTranslation();
   const { user } = useAuth();
 
   // Mode: 'create' for creating invites, 'join' for joining via code
-  const mode = initialInviteCode ? 'join' : 'create';
+  const mode = (initialInviteCode || forceJoinMode) ? 'join' : 'create';
 
   // Create mode state
   const [expiresOption, setExpiresOption] = useState<ExpiresOption>('7d');
@@ -244,8 +246,8 @@ export const InviteModal: React.FC<InviteModalProps> = ({
   // Join mode UI
   const renderJoinMode = () => (
     <div className="space-y-6">
-      {/* Code Input (if no initial code) */}
-      {!initialInviteCode && !invitationDetails && (
+      {/* Code Input - always show when no invitation details yet */}
+      {!invitationDetails && !joinSuccess && (
         <div>
           <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
             <Link2 size={14} className="text-sky-500" />

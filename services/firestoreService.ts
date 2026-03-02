@@ -32,6 +32,9 @@ import {
   setupOnlineListener,
 } from './offlineService';
 
+// Re-export types for convenience
+export type { CloudLedger, CloudExpense, LedgerMember, Invitation } from '../types/firestore';
+
 // Helper function to generate 8-character alphanumeric invite code
 export function generateInviteCode(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -172,6 +175,10 @@ export async function getLedger(ledgerId: string): Promise<CloudLedger | null> {
       baseCurrency: data.baseCurrency,
       exchangeRate: data.exchangeRate,
       families: data.families,
+      originCountry: data.originCountry,
+      status: data.status,
+      archivedAt: data.archivedAt,
+      archivedBy: data.archivedBy,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     } as CloudLedger;
@@ -198,6 +205,10 @@ export async function updateLedger(ledgerId: string, data: Partial<CloudLedger>)
     if (data.baseCurrency !== undefined) updateData.baseCurrency = data.baseCurrency;
     if (data.exchangeRate !== undefined) updateData.exchangeRate = data.exchangeRate;
     if (data.families !== undefined) updateData.families = data.families;
+    if (data.originCountry !== undefined) updateData.originCountry = data.originCountry;
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.archivedAt !== undefined) updateData.archivedAt = data.archivedAt;
+    if (data.archivedBy !== undefined) updateData.archivedBy = data.archivedBy;
 
     await updateDoc(ledgerRef, updateData);
   } catch (error) {

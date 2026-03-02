@@ -31,6 +31,10 @@ export interface Expense {
   category: Category;
   payerId: string; // Family ID
   sharedWithFamilyIds?: string[]; // IDs of families sharing this expense (excluding payer)
+  // Creator info for tracking who added the expense
+  createdBy?: string; // User ID who created this expense
+  createdByDisplayName?: string; // Display name of creator
+  createdAt?: number; // Timestamp when the expense record was created
 }
 
 export interface AppState {

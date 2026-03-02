@@ -89,7 +89,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
     setState((prev) => ({ ...prev, pendingChanges: prev.pendingChanges + 1 }));
   }, []);
 
-  // Sync ledger data to Firestore
+  // Sync ledger data to Firestore (bidirectional)
   const syncNow = useCallback(async (ledgerId: string, data: AppState): Promise<void> => {
     if (!state.isCloudEnabled) {
       console.log('Cloud sync is not enabled');
@@ -128,6 +128,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             baseCurrency: data.baseCurrency,
             exchangeRate: data.exchangeRate,
             families: data.families,
+            originCountry: data.originCountry,
           };
           await updateLedger(ledgerId, cloudLedger);
         }
@@ -142,36 +143,64 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
           baseCurrency: data.baseCurrency,
           exchangeRate: data.exchangeRate,
           families: data.families,
-        };
+          originCountry: data.originCountry,
+        } as CloudLedger;
         await createLedger(cloudLedger);
       }
 
-      // Sync expenses - only sync new expenses that don't exist in cloud
+      // Get existing expenses from cloud
       const existingExpenses = await getExpenses(ledgerId);
       const existingExpenseIds = new Set(existingExpenses.map(e => e.id));
+      const localExpenseIds = new Set(data.expenses.map(e => e.id));
 
+      // Upload new local expenses that don't exist in cloud
       for (const expense of data.expenses) {
-        // Only create expenses that don't exist in cloud
         if (!existingExpenseIds.has(expense.id)) {
-          const cloudExpense: CloudExpense = {
+          const cloudExpense: Omit<CloudExpense, 'createdAt' | 'updatedAt'> = {
             id: expense.id,
             ledgerId,
-            createdBy: auth.user!.uid,
-            createdByDisplayName: auth.user!.displayName || 'User',
+            createdBy: expense.createdBy || auth.user!.uid,
+            createdByDisplayName: expense.createdByDisplayName || auth.user!.displayName || 'User',
             date: expense.date,
             description: expense.description,
             amount: expense.amount,
             category: expense.category,
             payerId: expense.payerId,
-            sharedWithFamilyIds: expense.sharedWithFamilyIds,
+            sharedWithFamilyIds: expense.sharedWithFamilyIds || [],
           };
 
           try {
-            await createExpense(ledgerId, cloudExpense);
+            await createExpense(ledgerId, cloudExpense as CloudExpense);
           } catch (err) {
             console.error('Failed to create expense:', expense.id, err);
           }
         }
+      }
+
+      // Download expenses from cloud that don't exist locally
+      const newCloudExpenses: Expense[] = [];
+      for (const cloudExp of existingExpenses) {
+        if (!localExpenseIds.has(cloudExp.id)) {
+          newCloudExpenses.push({
+            id: cloudExp.id,
+            date: cloudExp.date,
+            description: cloudExp.description,
+            amount: cloudExp.amount,
+            category: cloudExp.category,
+            payerId: cloudExp.payerId,
+            sharedWithFamilyIds: cloudExp.sharedWithFamilyIds,
+            createdBy: cloudExp.createdBy,
+            createdByDisplayName: cloudExp.createdByDisplayName,
+            createdAt: cloudExp.createdAt ? cloudExp.createdAt.seconds * 1000 : undefined,
+          });
+        }
+      }
+
+      // If there are new expenses from cloud, update local state
+      if (newCloudExpenses.length > 0) {
+        console.log(`Downloaded ${newCloudExpenses.length} new expenses from cloud`);
+        // Return the new expenses to be merged by the caller
+        // This will be handled by the sync caller (App.tsx)
       }
 
       setState((prev) => ({
@@ -205,7 +234,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
 
       const expenses = await getExpenses(ledgerId);
 
-      // Convert cloud data to app state
+      // Convert cloud data to app state with creator info
       const appState: AppState = {
         ledgerName: ledger.name,
         expenses: expenses.map((e) => ({
@@ -216,13 +245,16 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
           category: e.category,
           payerId: e.payerId,
           sharedWithFamilyIds: e.sharedWithFamilyIds,
+          createdBy: e.createdBy,
+          createdByDisplayName: e.createdByDisplayName,
+          createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
         })),
         exchangeRate: ledger.exchangeRate,
         families: ledger.families,
         currencyCode: ledger.currencyCode,
         destination: ledger.destination,
         baseCurrency: ledger.baseCurrency,
-        originCountry: '中国', // Default, could be stored in ledger
+        originCountry: ledger.originCountry || '中国',
         lastUpdated: Date.now(),
       };
 
@@ -257,13 +289,16 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             category: e.category,
             payerId: e.payerId,
             sharedWithFamilyIds: e.sharedWithFamilyIds,
+            createdBy: e.createdBy,
+            createdByDisplayName: e.createdByDisplayName,
+            createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
           })),
           exchangeRate: ledger.exchangeRate,
           families: ledger.families,
           currencyCode: ledger.currencyCode,
           destination: ledger.destination,
           baseCurrency: ledger.baseCurrency,
-          originCountry: '中国',
+          originCountry: ledger.originCountry || '中国',
           lastUpdated: Date.now(),
         };
         callback(appState);
@@ -284,13 +319,16 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             category: e.category,
             payerId: e.payerId,
             sharedWithFamilyIds: e.sharedWithFamilyIds,
+            createdBy: e.createdBy,
+            createdByDisplayName: e.createdByDisplayName,
+            createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
           })),
           exchangeRate: ledger.exchangeRate,
           families: ledger.families,
           currencyCode: ledger.currencyCode,
           destination: ledger.destination,
           baseCurrency: ledger.baseCurrency,
-          originCountry: '中国',
+          originCountry: ledger.originCountry || '中国',
           lastUpdated: Date.now(),
         };
         callback(appState);

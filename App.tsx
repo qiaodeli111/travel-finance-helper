@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings, Plane, MapPin, Globe, Compass, Languages, User, LogOut, Cloud, Users, BookOpen, Star } from 'lucide-react';
+import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings, Plane, MapPin, Globe, Compass, Languages, User, LogOut, Cloud, Users, BookOpen, Star, Archive } from 'lucide-react';
 import { AppState, Family, COUNTRIES, ORIGIN_COUNTRIES } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { Summary } from './components/Summary';
@@ -19,6 +19,8 @@ import { useTranslation } from './i18n/useTranslation';
 import { Language, LANGUAGE_NAMES, getLanguageByCurrency } from './i18n/translations';
 import { useAuth } from './src/contexts/AuthContext';
 import { useCloudSync } from './src/contexts/CloudSyncContext';
+import { getLedgerMembers, checkPermission } from './services/collaborationService';
+import { LedgerMember } from './types/firestore';
 
 // Constants
 const LEDGER_LIST_KEY = 'my_ledgers_v1';
@@ -28,6 +30,11 @@ interface LedgerMeta {
   id: string;
   name: string;
   lastAccess: number;
+  ownerId?: string;           // 创建者用户ID
+  ownerDisplayName?: string;  // 创建者显示名称
+  isLocal?: boolean;          // 是否为本地账本
+  isCloudSynced?: boolean;    // 是否已同步到云端
+  status?: 'active' | 'archived'; // 账本状态
 }
 
 const DEFAULT_FAMILIES: Family[] = [
@@ -104,8 +111,14 @@ const App: React.FC = () => {
   const [showLedgerPanel, setShowLedgerPanel] = useState(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+
+  // Check if current ledger is archived
+  const currentLedger = ledgers.find(l => l.id === activeId);
+  const isArchived = currentLedger?.status === 'archived';
   const [rateLoading, setRateLoading] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'admin' | 'member' | 'viewer' | null>(null);
   const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState<string | null>(null);
+  const [inviteMode, setInviteMode] = useState<'create' | 'join'>('create');
   const [defaultLedgerId, setDefaultLedgerId] = useState<string | null>(() => {
     try {
       return localStorage.getItem('default_ledger_id');
@@ -135,6 +148,22 @@ const App: React.FC = () => {
       setShowInviteModal(true);
     }
   }, [user, inviteCodeFromUrl]);
+
+  // --- Check for local ledgers that need migration after login ---
+  useEffect(() => {
+    if (user && ledgers.length > 0) {
+      // Check if any local ledgers need to be migrated to cloud
+      const localLedgers = ledgers.filter(l => l.isLocal || !l.isCloudSynced);
+      if (localLedgers.length > 0 && !user.isAnonymous) {
+        // User just logged in and has local ledgers - show migration prompt
+        const hasSeenMigrationPrompt = localStorage.getItem('migration_prompt_seen');
+        if (!hasSeenMigrationPrompt) {
+          setShowMigrationModal(true);
+          localStorage.setItem('migration_prompt_seen', 'true');
+        }
+      }
+    }
+  }, [user, ledgers]);
 
   // --- Persistence of Ledger List ---
   useEffect(() => {
@@ -170,29 +199,8 @@ const App: React.FC = () => {
         updateLanguageFromOrigin(data.originCountry);
       }
     } else {
-      // First time user: Create default
-      const defaultData = {
-        ...DEFAULT_STATE,
-        ledgerName: "我的旅行账本"
-      };
-      const id = createLedgerId();
-      saveLedger(id, defaultData);
-
-      const newMeta = { id, name: defaultData.ledgerName, lastAccess: Date.now() };
-      setLedgers([newMeta]);
-      setActiveId(id);
-      setState(defaultData);
-      updateLanguageFromOrigin(defaultData.originCountry);
-
-      // Fetch latest rate in background
-      const rate = await fetchExchangeRate(defaultData.baseCurrency, 'IDR');
-      if (rate) {
-        setState(prev => {
-          const updated = { ...prev, exchangeRate: rate };
-          saveLedger(id, updated);
-          return updated;
-        });
-      }
+      // First time user: Show welcome wizard instead of auto-creating
+      setShowWelcomeWizard(true);
     }
   }, [ledgers, updateLanguageFromOrigin]);
 
@@ -205,6 +213,25 @@ const App: React.FC = () => {
        }
     }
   }, [activeId, initApp]);
+
+  // --- Fetch current user role ---
+  useEffect(() => {
+    const fetchRole = async () => {
+      if (user && activeId && isCloudEnabled) {
+        const members = await getLedgerMembers(activeId);
+        const currentMember = members.find(m => m.userId === user.uid);
+        setCurrentUserRole(currentMember?.role as any || null);
+      } else if (user) {
+        const ledger = ledgers.find(l => l.id === activeId);
+        if (ledger?.ownerId === user.uid || !ledger?.ownerId) {
+          setCurrentUserRole('owner');
+        }
+      } else {
+        setCurrentUserRole(null);
+      }
+    };
+    fetchRole();
+  }, [user, activeId, isCloudEnabled, ledgers]);
 
   // --- Load Data when Active ID Changes ---
   useEffect(() => {
@@ -251,6 +278,55 @@ const App: React.FC = () => {
     };
 
     loadData();
+
+    // Subscribe to real-time expense updates from cloud
+    let unsubscribe: (() => void) | null = null;
+
+    if (isCloudEnabled && user && activeId) {
+      const setupSubscription = async () => {
+        const { subscribeToExpenses } = await import('./services/firestoreService');
+        unsubscribe = subscribeToExpenses(activeId, (cloudExpenses) => {
+          console.log('Received expense update from cloud:', cloudExpenses.length, 'expenses');
+
+          // Merge cloud expenses with local state
+          setState(prev => {
+            const localIds = new Set(prev.expenses.map(e => e.id));
+            const newExpenses = cloudExpenses.filter(e => !localIds.has(e.id));
+
+            if (newExpenses.length > 0) {
+              console.log('Merging', newExpenses.length, 'new expenses from cloud');
+              const mergedExpenses = [
+                ...prev.expenses,
+                ...newExpenses.map(e => ({
+                  id: e.id,
+                  date: e.date,
+                  description: e.description,
+                  amount: e.amount,
+                  category: e.category,
+                  payerId: e.payerId,
+                  sharedWithFamilyIds: e.sharedWithFamilyIds,
+                  createdBy: e.createdBy,
+                  createdByDisplayName: e.createdByDisplayName,
+                  createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+                }))
+              ];
+              // Save merged data locally
+              const newState = { ...prev, expenses: mergedExpenses };
+              saveLedger(activeId, newState);
+              return newState;
+            }
+            return prev;
+          });
+        });
+      };
+      setupSubscription();
+    }
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [activeId, updateLanguageFromOrigin, isCloudEnabled, user, loadFromCloud]);
 
   // --- Save Data Effect ---
@@ -283,13 +359,22 @@ const App: React.FC = () => {
     const newId = createLedgerId();
     saveLedger(newId, newState);
 
-    const newMeta = { id: newId, name: name, lastAccess: Date.now() };
+    const newMeta: LedgerMeta = {
+      id: newId,
+      name: name,
+      lastAccess: Date.now(),
+      ownerId: user?.uid,
+      ownerDisplayName: user?.displayName || user?.email?.split('@')[0] || undefined,
+      isLocal: !user,
+      isCloudSynced: !!user,
+      status: 'active'
+    };
     setLedgers(prev => [...prev, newMeta]);
     setActiveId(newId);
     setState(newState);
     setShowLedgerMenu(false);
 
-    const rate = await fetchExchangeRate('IDR');
+    const rate = await fetchExchangeRate('CNY', 'IDR');
     if (rate) setState(prev => ({...prev, exchangeRate: rate}));
   };
 
@@ -469,6 +554,7 @@ const App: React.FC = () => {
                   <button
                     onClick={() => {
                       setShowLedgerMenu(false);
+                      setInviteMode('join');
                       setShowInviteModal(true);
                     }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-sky-600 hover:bg-sky-50 rounded-lg font-semibold transition-colors"
@@ -643,49 +729,94 @@ const App: React.FC = () => {
               currencyCode={state.currencyCode}
               exchangeRate={state.exchangeRate}
               baseCurrency={state.baseCurrency}
-              onDelete={(id) => setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}))}
+              onDelete={async (id) => {
+                // Update local state immediately
+                setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}));
+
+                // Delete from cloud if enabled
+                if (user && activeId && isCloudEnabled) {
+                  try {
+                    const { deleteExpense } = await import('./services/firestoreService');
+                    await deleteExpense(activeId, id);
+                    console.log('Expense deleted from cloud');
+                  } catch (err) {
+                    console.error('Failed to delete expense from cloud:', err);
+                  }
+                }
+              }}
             />
           )}
         </div>
       </main>
 
-      {/* Export Actions */}
-      <div className="mx-4 mt-6 grid grid-cols-3 gap-3 mb-24">
-        <button onClick={handleExportJSON} className="flex flex-col items-center justify-center glass-card p-3 rounded-2xl text-gray-600 text-xs gap-2 hover:bg-white/95 transition-all shadow-sm">
-          <FolderPlus size={22} className="text-sky-500" />
-          {t('backupData')}
-        </button>
-        <button onClick={handleImportJSON} className="flex flex-col items-center justify-center glass-card p-3 rounded-2xl text-gray-600 text-xs gap-2 hover:bg-white/95 transition-all shadow-sm">
-          <FileInput size={22} className="text-orange-500" />
-          {t('restoreData')}
-        </button>
-        <button onClick={handleExportMarkdown} className="flex flex-col items-center justify-center glass-card p-3 rounded-2xl text-gray-600 text-xs gap-2 hover:bg-white/95 transition-all shadow-sm">
-          <FileText size={22} className="text-green-500" />
-          {t('exportMarkdown')}
-        </button>
-         <button onClick={handleExportPDF} disabled={exportLoading} className="col-span-3 flex items-center justify-center bg-gradient-to-r from-sky-500 to-blue-600 text-white p-3.5 rounded-2xl shadow-lg shadow-sky-500/25 text-sm font-bold gap-2 hover:from-sky-600 hover:to-blue-700 transition-all">
+      {/* Export Actions - PDF only */}
+      <div className="mx-4 mt-6 mb-24">
+        <button onClick={handleExportPDF} disabled={exportLoading} className="w-full flex items-center justify-center bg-gradient-to-r from-sky-500 to-blue-600 text-white p-3.5 rounded-2xl shadow-lg shadow-sky-500/25 text-sm font-bold gap-2 hover:from-sky-600 hover:to-blue-700 transition-all">
           {exportLoading ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
           {t('exportPDF')}
         </button>
       </div>
 
-      {/* Floating Add Button - Travel Style */}
-      <button
-        onClick={() => setShowAddModal(true)}
-        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 text-white rounded-2xl shadow-2xl shadow-orange-500/30 flex items-center justify-center hover:scale-110 hover:rotate-3 transition-all z-40 group"
-      >
-        <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
-      </button>
+      {/* Floating Add Button - Travel Style - Hidden for archived ledgers or users without edit permission */}
+      {!isArchived && checkPermission(currentUserRole || 'member', 'edit_expenses') && (
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 text-white rounded-2xl shadow-2xl shadow-orange-500/30 flex items-center justify-center hover:scale-110 hover:rotate-3 transition-all z-40 group"
+        >
+          <Plus size={28} className="group-hover:rotate-90 transition-transform duration-300" />
+        </button>
+      )}
+
+      {/* Archived Banner */}
+      {isArchived && (
+        <div className="fixed bottom-6 right-6 px-4 py-3 bg-orange-100 text-orange-700 rounded-2xl flex items-center gap-2 z-40">
+          <Archive size={18} />
+          <span className="text-sm font-medium">{t('archived', 'This ledger is archived')}</span>
+        </div>
+      )}
 
       {/* Modals */}
       {showAddModal && (
         <ExpenseForm
           families={state.families}
           currencyCode={state.currencyCode}
-          onAddExpense={(expense) => setState(prev => ({
-            ...prev,
-            expenses: [...prev.expenses, { ...expense, id: `e${Date.now()}` }]
-          }))}
+          onAddExpense={async (expense) => {
+            const newExpense = {
+              ...expense,
+              id: `e${Date.now()}`,
+              createdBy: user?.uid,
+              createdByDisplayName: user?.displayName || user?.email?.split('@')[0] || 'User',
+              createdAt: Date.now()
+            };
+
+            // Update local state immediately
+            setState(prev => ({
+              ...prev,
+              expenses: [...prev.expenses, newExpense]
+            }));
+
+            // Upload to cloud immediately if logged in and cloud is enabled
+            if (user && activeId && isCloudEnabled) {
+              try {
+                const { createExpense } = await import('./services/firestoreService');
+                await createExpense(activeId, {
+                  id: newExpense.id,
+                  ledgerId: activeId,
+                  createdBy: newExpense.createdBy,
+                  createdByDisplayName: newExpense.createdByDisplayName,
+                  date: newExpense.date,
+                  description: newExpense.description,
+                  amount: newExpense.amount,
+                  category: newExpense.category,
+                  payerId: newExpense.payerId,
+                  sharedWithFamilyIds: newExpense.sharedWithFamilyIds || [],
+                } as any);
+                console.log('Expense uploaded to cloud');
+              } catch (err) {
+                console.error('Failed to upload expense:', err);
+              }
+            }
+          }}
           onClose={() => setShowAddModal(false)}
         />
       )}
@@ -697,6 +828,7 @@ const App: React.FC = () => {
           destination={state.destination}
           originCountry={state.originCountry}
           baseCurrency={state.baseCurrency}
+          userRole={currentUserRole}
           onSave={handleSaveSettings}
           onClose={() => setShowSettingsModal(false)}
           onExportJSON={handleExportJSON}
@@ -723,10 +855,12 @@ const App: React.FC = () => {
           onClose={() => {
             setShowInviteModal(false);
             setInviteCodeFromUrl(null);
+            setInviteMode('create');
           }}
           ledgerId={activeId || undefined}
           ledgerName={state.ledgerName}
           inviteCode={inviteCodeFromUrl || undefined}
+          forceJoinMode={inviteMode === 'join'}
           onJoinSuccess={async (ledgerId, ledgerName) => {
             // Add the joined ledger to the list
             const newMeta = { id: ledgerId, name: ledgerName, lastAccess: Date.now() };
@@ -810,6 +944,26 @@ const App: React.FC = () => {
             setLedgers(prev => prev.filter(l => l.id !== id));
           }}
           onRefresh={() => {}}
+          onArchive={async (id) => {
+            if (!user) return;
+            try {
+              const { updateLedger: updateCloudLedger } = await import('./services/firestoreService');
+              await updateCloudLedger(id, { status: 'archived', archivedBy: user.uid });
+              setLedgers(prev => prev.map(l => l.id === id ? { ...l, status: 'archived' } : l));
+            } catch (err) {
+              console.error('Failed to archive ledger:', err);
+            }
+          }}
+          onUnarchive={async (id) => {
+            if (!user) return;
+            try {
+              const { updateLedger: updateCloudLedger } = await import('./services/firestoreService');
+              await updateCloudLedger(id, { status: 'active', archivedBy: null });
+              setLedgers(prev => prev.map(l => l.id === id ? { ...l, status: 'active' } : l));
+            } catch (err) {
+              console.error('Failed to unarchive ledger:', err);
+            }
+          }}
         />
       )}
 
@@ -831,7 +985,20 @@ const App: React.FC = () => {
               lastUpdated: Date.now()
             };
             saveLedger(id, newState);
-            setLedgers(prev => [...prev, { id, name: newState.ledgerName, lastAccess: Date.now() }]);
+
+            // Create ledger metadata with owner info
+            const newMeta: LedgerMeta = {
+              id,
+              name: newState.ledgerName,
+              lastAccess: Date.now(),
+              ownerId: user?.uid,
+              ownerDisplayName: user?.displayName || user?.email?.split('@')[0] || undefined,
+              isLocal: !user,
+              isCloudSynced: !!user,
+              status: 'active'
+            };
+
+            setLedgers(prev => [...prev, newMeta]);
             setActiveId(id);
             setState(newState);
             if (data.setAsDefault) {

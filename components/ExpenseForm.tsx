@@ -3,6 +3,7 @@ import { Category, Family, Expense } from '../types';
 import { Sparkles, X, Calendar, MapPin, CreditCard, Users, Tag } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 import { translations } from '../i18n/translations';
+import { useAuth } from '../src/contexts/AuthContext';
 
 interface ExpenseFormProps {
   families: Family[];
@@ -13,6 +14,7 @@ interface ExpenseFormProps {
 
 export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode, onAddExpense, onClose }) => {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState<string>('');
   const [category, setCategory] = useState<Category>(Category.FOOD);
@@ -60,6 +62,10 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
       payerId,
       date: new Date(date).getTime(),
       sharedWithFamilyIds,
+      // Add creator info
+      createdBy: user?.uid,
+      createdByDisplayName: user?.displayName || user?.email?.split('@')[0] || 'User',
+      createdAt: Date.now(),
     });
     onClose();
   };

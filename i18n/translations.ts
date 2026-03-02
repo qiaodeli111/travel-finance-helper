@@ -121,6 +121,7 @@ export const translations = {
     noExpenses: 'No expenses yet',
     noExpensesHint: 'Tap the button below to add your first expense',
     deleteConfirm: 'Delete this expense?',
+    addedBy: 'Added by {{name}}',
 
     // Export
     backupData: 'Backup',
@@ -286,6 +287,13 @@ export const translations = {
     localLedger: 'Local',
     createdBy: 'Created by',
     invitedBy: 'Invited by',
+    archived: 'Archived',
+    archive: 'Archive',
+    unarchive: 'Unarchive',
+    deleteLedger: 'Delete Ledger',
+    leaveLedger: 'Leave Ledger',
+    deleteConfirmMessage: 'Type ledger name to confirm:',
+    delete: 'Delete',
   },
 
   zh: {
@@ -365,6 +373,7 @@ export const translations = {
     noExpenses: '暂无账单记录',
     noExpensesHint: '点击右下角按钮添加第一笔消费',
     deleteConfirm: '确定删除这条账单吗？',
+    addedBy: '由 {{name}} 添加',
 
     // Export
     backupData: '备份数据',
@@ -530,6 +539,13 @@ export const translations = {
     localLedger: '本地',
     createdBy: '创建者',
     invitedBy: '邀请者',
+    archived: '已归档',
+    archive: '归档',
+    unarchive: '取消归档',
+    deleteLedger: '删除账本',
+    leaveLedger: '退出账本',
+    deleteConfirmMessage: '输入账本名称确认删除：',
+    delete: '删除',
   },
 };
 

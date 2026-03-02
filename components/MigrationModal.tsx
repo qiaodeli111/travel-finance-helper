@@ -87,6 +87,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({
         }
 
         await migrateLocalToCloud(
+          data,
           ledgerId,
           user?.uid || 'anonymous',
           user?.displayName || 'User'

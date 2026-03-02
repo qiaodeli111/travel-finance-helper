@@ -29,6 +29,10 @@ export interface CloudLedger {
   baseCurrency: string;
   exchangeRate: number;
   families: Family[];
+  originCountry?: string; // Where the users are from
+  status?: 'active' | 'archived'; // Ledger status
+  archivedAt?: Timestamp | null; // When archived
+  archivedBy?: string | null; // Who archived it
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

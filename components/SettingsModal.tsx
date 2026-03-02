@@ -17,6 +17,7 @@ interface SettingsModalProps {
   onImportJSON?: () => void;
   onExportMarkdown?: () => void;
   onExportPDF?: () => void;
+  userRole?: 'owner' | 'admin' | 'member' | 'viewer' | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -30,11 +31,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportJSON,
   onImportJSON,
   onExportMarkdown,
-  onExportPDF
+  onExportPDF,
+  userRole
 }) => {
   const { t, language } = useTranslation();
   const { user } = useAuth();
   const { isCloudEnabled, enableCloud, syncNow, syncStatus } = useCloudSync();
+
+  const canChangeSettings = !userRole || userRole === 'owner' || userRole === 'admin';
+  const isViewer = userRole === 'viewer';
 
   const [localLedgerName, setLocalLedgerName] = useState(ledgerName);
   const [localFamilies, setLocalFamilies] = useState<Family[]>(families);
@@ -94,7 +99,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       return;
     }
     enableCloud();
-    syncNow();
+    // syncNow will be called by parent when data changes
   };
 
   return (
@@ -216,7 +221,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <select
               value={localOriginCountry}
               onChange={(e) => handleOriginChange(e.target.value)}
-              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all appearance-none cursor-pointer"
+              disabled={!canChangeSettings}
+              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {ORIGIN_COUNTRIES.map(c => (
                 <option key={c.name} value={c.name}>
@@ -239,7 +245,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <select
               value={localDestination}
               onChange={(e) => handleDestinationChange(e.target.value)}
-              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all appearance-none cursor-pointer"
+              disabled={!canChangeSettings}
+              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {COUNTRIES.map(c => (
                 <option key={c.name} value={c.name}>{getCountryDisplayText(c.name, language)}</option>
@@ -279,7 +286,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       min="1"
                       value={f.count}
                       onChange={(e) => handleUpdateFamily(f.id, 'count', parseInt(e.target.value) || 1)}
-                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-center focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none"
+                      disabled={!canChangeSettings}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm text-center focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                     />
                   </div>
                   <div className="w-10 flex justify-center">
@@ -297,6 +305,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {t('settlementHint')}
             </p>
           </div>
+
+          {/* Viewer Hint */}
+          {isViewer && (
+            <p className="text-xs text-orange-500 mt-4 p-2 bg-orange-50 rounded">
+              作为查看者，您无法修改账本设置。
+            </p>
+          )}
         </div>
 
         <div className="p-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">

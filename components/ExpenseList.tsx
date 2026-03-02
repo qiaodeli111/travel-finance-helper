@@ -1,6 +1,6 @@
 import React from 'react';
 import { Expense, Family } from '../types';
-import { Trash2, Receipt, Calendar, CreditCard, Users } from 'lucide-react';
+import { Trash2, Receipt, Calendar, CreditCard, Users, User } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 
 interface ExpenseListProps {
@@ -35,6 +35,13 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(val);
   const formatBaseCurrency = (val: number) => new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: baseCurrency, maximumFractionDigits: 2 }).format(val);
   const formatDate = (timestamp: number) => new Date(timestamp).toLocaleDateString(language === 'zh' ? 'zh-CN' : 'en-US');
+  const formatDateTime = (timestamp: number) => new Date(timestamp).toLocaleString(language === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 
   return (
     <div className="space-y-3">
@@ -80,6 +87,16 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, families, cu
                       {formatDate(expense.date)}
                     </span>
                   </div>
+                  {/* Creator Info */}
+                  {expense.createdByDisplayName && (
+                    <div className="flex items-center gap-1.5 mt-1.5 text-xs text-gray-400">
+                      <User size={10} />
+                      <span>
+                        {t('addedBy', { name: expense.createdByDisplayName })}
+                        {expense.createdAt && ` · ${formatDateTime(expense.createdAt)}`}
+                      </span>
+                    </div>
+                  )}
                   {/* Shared Families */}
                   {sharedFamilies.length > 0 && (
                     <div className="flex items-center gap-1.5 mt-2 flex-wrap">
