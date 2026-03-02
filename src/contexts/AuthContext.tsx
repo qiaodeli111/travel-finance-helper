@@ -115,6 +115,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // Refresh user data from Firebase
+  const refreshUser = async (): Promise<void> => {
+    try {
+      const currentUser = authService.auth?.currentUser;
+      if (currentUser) {
+        await currentUser.reload();
+        const refreshedUser = authService.mapFirebaseUserToUser ?
+          authService.mapFirebaseUserToUser(currentUser) :
+          {
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName,
+            photoURL: currentUser.photoURL,
+            phoneNumber: currentUser.phoneNumber,
+            isAnonymous: currentUser.isAnonymous,
+            createdAt: new Date(currentUser.metadata.creationTime || Date.now()),
+            lastLoginAt: new Date(currentUser.metadata.lastSignInTime || Date.now()),
+          };
+        setState((prev) => ({ ...prev, user: refreshedUser }));
+      }
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
+  };
+
   // Initialize auth state - this runs once on mount
   useEffect(() => {
     const initializeAuth = async () => {
@@ -149,6 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     resetPassword,
     updateProfile,
     clearError,
+    refreshUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

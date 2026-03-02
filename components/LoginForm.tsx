@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, User } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../src/contexts/AuthContext';
 
 interface LoginFormProps {
   onSuccess: () => void;

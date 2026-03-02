@@ -1,0 +1,9 @@
+{
+  "id": "3",
+  "subject": "修复 Firestore 服务层错误",
+  "description": "检查 firestoreService.ts 中的 getLedger, createLedger, updateLedger 等函数，确保正确处理错误",
+  "status": "pending",
+  "owner": null,
+  "result": null,
+  "createdAt": "2026-03-02T08:32:15.857Z"
+}

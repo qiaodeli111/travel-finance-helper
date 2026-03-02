@@ -1,0 +1,9 @@
+{
+  "id": "2",
+  "subject": "检查 Firestore 权限规则",
+  "description": "检查 firestore.rules 文件，确保权限规则正确允许成员读写账本和支出数据",
+  "status": "pending",
+  "owner": null,
+  "result": null,
+  "createdAt": "2026-03-02T08:32:15.857Z"
+}

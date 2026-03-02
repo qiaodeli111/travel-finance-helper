@@ -1,8 +1,8 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeApp, FirebaseOptions } from 'firebase/app';
+import { getAuth, Auth } from 'firebase/auth';
+import { getFirestore, Firestore, enableIndexedDbPersistence } from 'firebase/firestore';
 
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
@@ -11,17 +11,44 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Check if Firebase is properly configured
+const isFirebaseConfigured = Boolean(
+  firebaseConfig.apiKey &&
+  firebaseConfig.projectId &&
+  firebaseConfig.appId
+);
 
-// Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
-  } else if (err.code === 'unimplemented') {
-    console.warn('The current browser does not support offline persistence.');
+// Initialize Firebase only if configured
+let app;
+let auth: Auth;
+let db: Firestore;
+
+if (isFirebaseConfigured) {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+
+    // Enable offline persistence
+    enableIndexedDbPersistence(db).catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn('Multiple tabs open, persistence can only be enabled in one tab at a time.');
+      } else if (err.code === 'unimplemented') {
+        console.warn('The current browser does not support offline persistence.');
+      }
+    });
+  } catch (error) {
+    console.error('Firebase initialization error:', error);
   }
-});
+} else {
+  console.warn('Firebase is not configured. Cloud sync features will be disabled.');
+  // Create mock exports for type safety
+  auth = null as any;
+  db = null as any;
+}
 
+// Export configuration status for conditional rendering
+export const isCloudEnabled = isFirebaseConfigured;
+
+export { auth, db };
 export default app;

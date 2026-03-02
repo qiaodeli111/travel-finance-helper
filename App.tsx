@@ -1,14 +1,24 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings, Plane, MapPin, Globe, Compass, Languages } from 'lucide-react';
+import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings, Plane, MapPin, Globe, Compass, Languages, User, LogOut, Cloud, Users, BookOpen, Star } from 'lucide-react';
 import { AppState, Family, COUNTRIES, ORIGIN_COUNTRIES } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
 import { Summary } from './components/Summary';
 import { ExpenseList } from './components/ExpenseList';
 import { SettingsModal } from './components/SettingsModal';
-import { createLedgerId, saveLedger, loadLedger } from './services/storageService';
+import { AuthModal } from './components/AuthModal';
+import { SyncIndicator } from './components/SyncIndicator';
+import { InviteModal } from './components/InviteModal';
+import { MembersPanel } from './components/MembersPanel';
+import { MigrationModal } from './components/MigrationModal';
+import { UserProfileModal } from './components/UserProfileModal';
+import { LedgerManagePanel } from './components/LedgerManagePanel';
+import { WelcomeWizard } from './components/WelcomeWizard';
+import { createLedgerId, saveLedger, loadLedger, deleteLedger } from './services/storageService';
 import { exportToMarkdown, exportToPDF } from './services/exportService';
 import { useTranslation } from './i18n/useTranslation';
 import { Language, LANGUAGE_NAMES, getLanguageByCurrency } from './i18n/translations';
+import { useAuth } from './src/contexts/AuthContext';
+import { useCloudSync } from './src/contexts/CloudSyncContext';
 
 // Constants
 const LEDGER_LIST_KEY = 'my_ledgers_v1';
@@ -54,6 +64,10 @@ const App: React.FC = () => {
   // --- i18n ---
   const { t, language, setLanguage } = useTranslation();
 
+  // --- Auth & Cloud Sync ---
+  const { user, signOut, loading: authLoading } = useAuth();
+  const { isCloudEnabled, enableCloud, syncNow, markPendingChange, loadFromCloud } = useCloudSync();
+
   // Auto-set language based on origin country
   const updateLanguageFromOrigin = useCallback((originCountry: string) => {
     const origin = ORIGIN_COUNTRIES.find(c => c.name === originCountry);
@@ -81,8 +95,46 @@ const App: React.FC = () => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showLedgerMenu, setShowLedgerMenu] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showMembersPanel, setShowMembersPanel] = useState(false);
+  const [showMigrationModal, setShowMigrationModal] = useState(false);
+  const [showUserProfile, setShowUserProfile] = useState(false);
+  const [showLedgerPanel, setShowLedgerPanel] = useState(false);
+  const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [rateLoading, setRateLoading] = useState(false);
+  const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState<string | null>(null);
+  const [defaultLedgerId, setDefaultLedgerId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('default_ledger_id');
+    } catch { return null; }
+  });
+
+  // --- Handle Invite Link from URL ---
+  useEffect(() => {
+    const path = window.location.pathname;
+    const match = path.match(/^\/join\/([A-Z0-9]+)$/i);
+    if (match) {
+      const code = match[1].toUpperCase();
+      setInviteCodeFromUrl(code);
+      // Clean up URL
+      window.history.replaceState({}, '', '/');
+      // If user is already logged in, show invite modal immediately
+      if (user) {
+        setShowInviteModal(true);
+      }
+      // If not logged in, the invite modal will be shown after login (see effect below)
+    }
+  }, []); // Run once on mount
+
+  // --- Show Invite Modal after Login if there's a pending invite ---
+  useEffect(() => {
+    if (user && inviteCodeFromUrl && !showInviteModal) {
+      setShowInviteModal(true);
+    }
+  }, [user, inviteCodeFromUrl]);
 
   // --- Persistence of Ledger List ---
   useEffect(() => {
@@ -157,8 +209,23 @@ const App: React.FC = () => {
   // --- Load Data when Active ID Changes ---
   useEffect(() => {
     if (!activeId) return;
-    const data = loadLedger(activeId);
-    if (data) {
+
+    const loadData = async () => {
+      // First try to load from local storage
+      let data = loadLedger(activeId);
+
+      // If not found locally and cloud is enabled, try to load from cloud
+      if (!data && isCloudEnabled && user) {
+        console.log('Loading ledger from cloud:', activeId);
+        const cloudData = await loadFromCloud(activeId);
+        if (cloudData) {
+          data = cloudData;
+          // Save to local storage for future use
+          saveLedger(activeId, cloudData);
+        }
+      }
+
+      if (data) {
         // Migration logic here as well just in case
         if (!data.families) {
           data.families = [
@@ -178,10 +245,13 @@ const App: React.FC = () => {
         setState(data);
         updateLanguageFromOrigin(data.originCountry);
         setLedgers(prev => prev.map(L =>
-             L.id === activeId ? { ...L, name: data.ledgerName, lastAccess: Date.now() } : L
+             L.id === activeId ? { ...L, name: data!.ledgerName, lastAccess: Date.now() } : L
         ));
-    }
-  }, [activeId, updateLanguageFromOrigin]);
+      }
+    };
+
+    loadData();
+  }, [activeId, updateLanguageFromOrigin, isCloudEnabled, user, loadFromCloud]);
 
   // --- Save Data Effect ---
   useEffect(() => {
@@ -193,9 +263,16 @@ const App: React.FC = () => {
           ? { ...L, name: state.ledgerName }
           : L
       ));
+
+      // Auto-sync to cloud if enabled
+      if (isCloudEnabled && user && activeId) {
+        syncNow(activeId, state).catch(err => {
+          console.error('Auto-sync failed:', err);
+        });
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [state, activeId]);
+  }, [state, activeId, isCloudEnabled, user, syncNow]);
 
   // --- Handlers ---
   const handleCreateNewLedger = async () => {
@@ -324,6 +401,20 @@ const App: React.FC = () => {
     setExportLoading(false);
   };
 
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      setShowUserMenu(false);
+    } catch (error) {
+      console.error('Sign out failed:', error);
+    }
+  };
+
+  const handleEnableCloudSync = () => {
+    enableCloud();
+    setShowMigrationModal(true);
+  };
+
   return (
     <div className="min-h-screen pb-20 relative" id="app-content">
       {/* Header Background Layer - Ocean to Sunset Gradient */}
@@ -360,7 +451,10 @@ const App: React.FC = () => {
                       onClick={() => handleSwitchLedger(l.id)}
                       className={`w-full text-left px-4 py-3 hover:bg-sky-50 flex items-center justify-between transition-colors ${activeId === l.id ? 'bg-sky-50 text-sky-600' : ''}`}
                     >
-                      <span className="truncate font-medium">{l.name}</span>
+                      <span className="truncate font-medium flex items-center gap-2">
+                        {l.id === defaultLedgerId && <Star size={12} className="text-yellow-500 fill-yellow-500" />}
+                        {l.name}
+                      </span>
                       {activeId === l.id && <CheckCircle size={14} />}
                     </button>
                   ))}
@@ -372,13 +466,113 @@ const App: React.FC = () => {
                   >
                     <Plus size={16} /> {t('newLedger')}
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowLedgerMenu(false);
+                      setShowInviteModal(true);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-sky-600 hover:bg-sky-50 rounded-lg font-semibold transition-colors"
+                  >
+                    <Users size={16} /> {t('joinWithCode')}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowLedgerMenu(false);
+                      setShowLedgerPanel(true);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg font-medium transition-colors"
+                  >
+                    <BookOpen size={16} /> {t('ledgerManage')}
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex gap-2">
-             <button
+             {/* User Status */}
+             {user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-white/20 rounded-xl transition-all backdrop-blur-sm border border-white/10"
+                >
+                  <div className="w-6 h-6 bg-white/30 rounded-full flex items-center justify-center">
+                    {user.photoURL ? (
+                      <img src={user.photoURL} alt="" className="w-6 h-6 rounded-full" />
+                    ) : (
+                      <User size={14} />
+                    )}
+                  </div>
+                  <span className="text-sm font-medium hidden sm:inline">
+                    {user.displayName || user.email?.split('@')[0] || 'User'}
+                  </span>
+                  <ChevronDown size={14} className="opacity-70" />
+                </button>
+
+                {/* User Dropdown Menu */}
+                {showUserMenu && (
+                  <div className="absolute top-full right-0 mt-2 w-56 glass-card rounded-xl shadow-xl overflow-hidden text-gray-800 z-50">
+                    <div className="p-3 border-b border-gray-100">
+                      <p className="font-medium text-sm truncate">{user.displayName || 'User'}</p>
+                      <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                    </div>
+                    <div className="p-2">
+                      <SyncIndicator />
+                    </div>
+                    <div className="border-t border-gray-100">
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowUserProfile(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-sky-50 transition-colors"
+                      >
+                        <User size={16} className="text-sky-500" />
+                        {t('userProfile')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowInviteModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-sky-50 transition-colors"
+                      >
+                        <Users size={16} className="text-sky-500" />
+                        {t('inviteMembers')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUserMenu(false);
+                          setShowMembersPanel(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-sky-50 transition-colors"
+                      >
+                        <Users size={16} className="text-sky-500" />
+                        {t('members')}
+                      </button>
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut size={16} />
+                        {t('signOut')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="flex items-center gap-2 px-3 py-2 hover:bg-white/20 rounded-xl transition-all backdrop-blur-sm border border-white/10"
+              >
+                <User size={18} />
+                <span className="text-sm font-medium">{t('login')}</span>
+              </button>
+            )}
+
+            <button
               onClick={() => setShowSettingsModal(true)}
               className="p-2.5 hover:bg-white/20 rounded-xl transition-all backdrop-blur-sm border border-white/10"
               title={t('settings')}
@@ -505,6 +699,148 @@ const App: React.FC = () => {
           baseCurrency={state.baseCurrency}
           onSave={handleSaveSettings}
           onClose={() => setShowSettingsModal(false)}
+          onExportJSON={handleExportJSON}
+          onImportJSON={handleImportJSON}
+          onExportMarkdown={handleExportMarkdown}
+          onExportPDF={handleExportPDF}
+        />
+      )}
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          initialMode="login"
+        />
+      )}
+
+      {/* Invite Modal */}
+      {/* Invite Modal - show for both creating and joining */}
+      {showInviteModal && (
+        <InviteModal
+          isOpen={showInviteModal}
+          onClose={() => {
+            setShowInviteModal(false);
+            setInviteCodeFromUrl(null);
+          }}
+          ledgerId={activeId || undefined}
+          ledgerName={state.ledgerName}
+          inviteCode={inviteCodeFromUrl || undefined}
+          onJoinSuccess={async (ledgerId, ledgerName) => {
+            // Add the joined ledger to the list
+            const newMeta = { id: ledgerId, name: ledgerName, lastAccess: Date.now() };
+            setLedgers(prev => {
+              // Check if already exists
+              const exists = prev.find(l => l.id === ledgerId);
+              if (exists) {
+                return prev.map(l => l.id === ledgerId ? { ...l, name: ledgerName, lastAccess: Date.now() } : l);
+              }
+              return [...prev, newMeta];
+            });
+            setActiveId(ledgerId);
+
+            // Load ledger data from cloud
+            if (isCloudEnabled && user) {
+              const cloudData = await loadFromCloud(ledgerId);
+              if (cloudData) {
+                setState(cloudData);
+                saveLedger(ledgerId, cloudData);
+                // Update ledger name from cloud data
+                setLedgers(prev => prev.map(l =>
+                  l.id === ledgerId ? { ...l, name: cloudData.ledgerName } : l
+                ));
+                updateLanguageFromOrigin(cloudData.originCountry);
+              }
+            }
+          }}
+        />
+      )}
+
+      {/* Members Panel */}
+      {showMembersPanel && activeId && (
+        <MembersPanel
+          isOpen={showMembersPanel}
+          onClose={() => setShowMembersPanel(false)}
+          ledgerId={activeId}
+          ownerId={user?.uid || ''}
+        />
+      )}
+
+      {/* Migration Modal */}
+      {showMigrationModal && activeId && (
+        <MigrationModal
+          isOpen={showMigrationModal}
+          onClose={() => setShowMigrationModal(false)}
+          ledgerId={activeId}
+          localData={state}
+        />
+      )}
+
+      {/* User Profile Modal */}
+      {showUserProfile && (
+        <UserProfileModal
+          isOpen={showUserProfile}
+          onClose={() => setShowUserProfile(false)}
+        />
+      )}
+
+      {/* Ledger Manage Panel */}
+      {showLedgerPanel && (
+        <LedgerManagePanel
+          isOpen={showLedgerPanel}
+          onClose={() => setShowLedgerPanel(false)}
+          ledgers={ledgers.map(l => ({
+            ...l,
+            isDefault: l.id === defaultLedgerId,
+            isCloudSynced: isCloudEnabled && !!user
+          }))}
+          activeId={activeId}
+          onSelect={(id) => {
+            setActiveId(id);
+            setShowLedgerPanel(false);
+          }}
+          onSetDefault={(id) => {
+            setDefaultLedgerId(id);
+            localStorage.setItem('default_ledger_id', id);
+          }}
+          onDelete={(id) => {
+            if (id === activeId) return;
+            deleteLedger(id);
+            setLedgers(prev => prev.filter(l => l.id !== id));
+          }}
+          onRefresh={() => {}}
+        />
+      )}
+
+      {/* Welcome Wizard for New Users */}
+      {showWelcomeWizard && (
+        <WelcomeWizard
+          isOpen={showWelcomeWizard}
+          onComplete={(data) => {
+            const id = createLedgerId();
+            const newState: AppState = {
+              ledgerName: data.ledgerName,
+              expenses: [],
+              exchangeRate: DEFAULT_RATE,
+              families: data.families,
+              currencyCode: COUNTRIES.find(c => c.name === data.destination)?.currency || 'IDR',
+              destination: data.destination,
+              baseCurrency: data.baseCurrency,
+              originCountry: data.originCountry,
+              lastUpdated: Date.now()
+            };
+            saveLedger(id, newState);
+            setLedgers(prev => [...prev, { id, name: newState.ledgerName, lastAccess: Date.now() }]);
+            setActiveId(id);
+            setState(newState);
+            if (data.setAsDefault) {
+              setDefaultLedgerId(id);
+              localStorage.setItem('default_ledger_id', id);
+            }
+            setShowWelcomeWizard(false);
+            updateLanguageFromOrigin(data.originCountry);
+          }}
         />
       )}
 

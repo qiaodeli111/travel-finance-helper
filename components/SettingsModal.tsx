@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Save, Settings, MapPin, Users, BookOpen, Globe, Languages } from 'lucide-react';
+import { X, Plus, Trash2, Save, Settings, MapPin, Users, BookOpen, Globe, Cloud, CloudOff, Download, Upload, FileText, FileDown } from 'lucide-react';
 import { Family, COUNTRIES, ORIGIN_COUNTRIES } from '../types';
 import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
-import { LANGUAGE_NAMES, Language } from '../i18n/translations';
+import { useAuth } from '../src/contexts/AuthContext';
+import { useCloudSync } from '../src/contexts/CloudSyncContext';
 
 interface SettingsModalProps {
   ledgerName: string;
@@ -12,6 +13,10 @@ interface SettingsModalProps {
   baseCurrency: string;
   onSave: (ledgerName: string, families: Family[], destination: string, currency: string, originCountry: string, baseCurrency: string) => void;
   onClose: () => void;
+  onExportJSON?: () => void;
+  onImportJSON?: () => void;
+  onExportMarkdown?: () => void;
+  onExportPDF?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -21,9 +26,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   originCountry,
   baseCurrency,
   onSave,
-  onClose
+  onClose,
+  onExportJSON,
+  onImportJSON,
+  onExportMarkdown,
+  onExportPDF
 }) => {
-  const { t, language, setLanguage } = useTranslation();
+  const { t, language } = useTranslation();
+  const { user } = useAuth();
+  const { isCloudEnabled, enableCloud, syncNow, syncStatus } = useCloudSync();
+
   const [localLedgerName, setLocalLedgerName] = useState(ledgerName);
   const [localFamilies, setLocalFamilies] = useState<Family[]>(families);
   const [localDestination, setLocalDestination] = useState(destination);
@@ -38,20 +50,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setLocalBaseCurrency(baseCurrency);
   }, [ledgerName, families, destination, originCountry, baseCurrency]);
 
-  // Update base currency when origin country changes
   const handleOriginChange = (newOrigin: string) => {
     setLocalOriginCountry(newOrigin);
     const origin = ORIGIN_COUNTRIES.find(c => c.name === newOrigin);
     if (origin) {
       setLocalBaseCurrency(origin.currency);
-      // Auto-switch language
-      setLanguage(origin.language);
     }
   };
 
   const handleDestinationChange = (newDest: string) => {
     setLocalDestination(newDest);
-    // Auto-update ledger name if it follows the pattern or is default
     const isDefaultName = localLedgerName.includes('Trip') || localLedgerName.includes('旅行账本') || localLedgerName === 'New Ledger' || localLedgerName === '新建账本';
     if (isDefaultName) {
       setLocalLedgerName(language === 'zh' ? `${newDest}旅行账本` : `${newDest} Trip`);
@@ -80,10 +88,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSave(localLedgerName, localFamilies, localDestination, currency, localOriginCountry, localBaseCurrency);
   };
 
+  const handleEnableCloudSync = () => {
+    if (!user) {
+      // Will be handled by parent component to show login modal
+      return;
+    }
+    enableCloud();
+    syncNow();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh] border border-white/50">
-        {/* Header - Travel Theme */}
+        {/* Header */}
         <div className="p-5 flex justify-between items-center bg-gradient-to-r from-sky-500 to-blue-600 text-white">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
@@ -100,26 +117,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-6 overflow-y-auto space-y-6">
-          {/* Language Switcher */}
-          <div className="flex items-center justify-between p-3 bg-gradient-to-r from-sky-50 to-blue-50 rounded-2xl">
-            <div className="flex items-center gap-2">
-              <Languages size={18} className="text-sky-500" />
-              <span className="text-sm font-medium text-gray-700">{t('language')}</span>
-            </div>
-            <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm">
-              {(Object.keys(LANGUAGE_NAMES) as Language[]).map((lang) => (
+          {/* Cloud Sync Section */}
+          <div className="p-4 bg-gradient-to-r from-sky-50 to-blue-50 rounded-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {isCloudEnabled ? (
+                  <Cloud size={24} className="text-sky-500" />
+                ) : (
+                  <CloudOff size={24} className="text-gray-400" />
+                )}
+                <div>
+                  <p className="font-medium text-gray-800">{t('cloudSyncEnabled')}</p>
+                  <p className="text-xs text-gray-500">
+                    {user ? t('syncStatus') + ': ' + t(syncStatus) : t('signInToSync')}
+                  </p>
+                </div>
+              </div>
+              {!isCloudEnabled && (
                 <button
-                  key={lang}
-                  onClick={() => setLanguage(lang)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                    language === lang
-                      ? 'bg-sky-500 text-white shadow-sm'
-                      : 'text-gray-500 hover:bg-gray-100'
-                  }`}
+                  onClick={handleEnableCloudSync}
+                  className="px-4 py-2 bg-sky-500 text-white rounded-xl text-sm font-medium hover:bg-sky-600 transition-colors"
                 >
-                  {LANGUAGE_NAMES[lang]}
+                  {t('enableCloudSync')}
                 </button>
-              ))}
+              )}
+            </div>
+          </div>
+
+          {/* Data Management Section */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-3">
+              <FileText size={14} className="text-orange-500" />
+              {t('backupData')} / {t('restoreData')}
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={onExportJSON}
+                className="flex items-center justify-center gap-2 p-3 bg-orange-50 hover:bg-orange-100 rounded-xl text-orange-600 font-medium transition-colors"
+              >
+                <Download size={18} />
+                {t('backupData')}
+              </button>
+              <button
+                onClick={onImportJSON}
+                className="flex items-center justify-center gap-2 p-3 bg-green-50 hover:bg-green-100 rounded-xl text-green-600 font-medium transition-colors"
+              >
+                <Upload size={18} />
+                {t('restoreData')}
+              </button>
+            </div>
+          </div>
+
+          {/* Export Section */}
+          <div>
+            <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-3">
+              <FileDown size={14} className="text-purple-500" />
+              {t('exportTitle')}
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={onExportMarkdown}
+                className="flex items-center justify-center gap-2 p-3 bg-purple-50 hover:bg-purple-100 rounded-xl text-purple-600 font-medium transition-colors"
+              >
+                <FileText size={18} />
+                Markdown
+              </button>
+              <button
+                onClick={onExportPDF}
+                className="flex items-center justify-center gap-2 p-3 bg-red-50 hover:bg-red-100 rounded-xl text-red-600 font-medium transition-colors"
+              >
+                <FileDown size={18} />
+                PDF
+              </button>
             </div>
           </div>
 
@@ -138,7 +207,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          {/* Origin Country - Where are you from */}
+          {/* Origin Country */}
           <div>
             <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
               <Globe size={14} className="text-sky-500" />
@@ -193,7 +262,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div className="space-y-3">
-              {localFamilies.map((f, index) => (
+              {localFamilies.map((f) => (
                 <div key={f.id} className="flex gap-3 items-center bg-gray-50 p-3 rounded-2xl">
                   <div className="flex-1">
                     <input

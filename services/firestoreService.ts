@@ -443,15 +443,15 @@ export async function createExpense(ledgerId: string, expense: CloudExpense): Pr
  */
 export async function getExpenses(ledgerId: string): Promise<CloudExpense[]> {
   try {
+    // Remove orderBy to avoid needing composite index
     const expensesQuery = query(
       collection(db, COLLECTIONS.EXPENSES),
-      where('ledgerId', '==', ledgerId),
-      orderBy('date', 'desc')
+      where('ledgerId', '==', ledgerId)
     );
 
     const expensesSnapshot = await getDocs(expensesQuery);
 
-    return expensesSnapshot.docs.map((doc) => {
+    const expenses = expensesSnapshot.docs.map((doc) => {
       const data = doc.data();
       return {
         id: doc.id,
@@ -468,9 +468,13 @@ export async function getExpenses(ledgerId: string): Promise<CloudExpense[]> {
         updatedAt: data.updatedAt,
       } as CloudExpense;
     });
+
+    // Sort locally by date descending
+    return expenses.sort((a, b) => (b.date || 0) - (a.date || 0));
   } catch (error) {
     console.error('Error getting expenses:', error);
-    throw new Error(`Failed to get expenses: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Return empty array instead of throwing - allows partial sync
+    return [];
   }
 }
 

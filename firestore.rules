@@ -1,0 +1,95 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(ledgerId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/ledgers/$(ledgerId)).data.ownerId == request.auth.uid;
+    }
+
+    function isMember(ledgerId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/members/$(ledgerId + '_' + request.auth.uid));
+    }
+
+    function hasRole(ledgerId, roles) {
+      let memberData = get(/databases/$(database)/documents/members/$(ledgerId + '_' + request.auth.uid)).data;
+      return memberData != null && memberData.role in roles;
+    }
+
+    // Users collection - users can only read/write their own document
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false; // Users cannot delete their profile
+    }
+
+    // Ledgers collection
+    match /ledgers/{ledgerId} {
+      // Anyone can read ledger info if they're a member
+      allow read: if isMember(ledgerId);
+
+      // Only owner can create/update/delete
+      allow create: if isAuthenticated();
+      allow update: if isOwner(ledgerId) || hasRole(ledgerId, ['owner', 'admin']);
+      allow delete: if isOwner(ledgerId);
+    }
+
+    // Members collection
+    match /members/{memberId} {
+      // Members of the ledger can read
+      allow read: if isAuthenticated() &&
+        exists(/databases/$(database)/documents/members/$(memberId.split('_')[0] + '_' + request.auth.uid));
+
+      // Create when joining via invitation or by owner
+      allow create: if isAuthenticated();
+
+      // Only owner and admin can update roles
+      allow update: if isAuthenticated() &&
+        (hasRole(memberId.split('_')[0], ['owner', 'admin']) ||
+         request.auth.uid == memberId.split('_')[1]);
+
+      // Only owner can delete (remove members)
+      allow delete: if hasRole(memberId.split('_')[0], ['owner', 'admin']);
+    }
+
+    // Invitations collection
+    match /invitations/{invitationId} {
+      // Anyone authenticated can read invitations (to join)
+      allow read: if isAuthenticated();
+
+      // Any member can create invitations
+      allow create: if isAuthenticated();
+
+      // Only inviter or owner/admin can update
+      allow update: if isAuthenticated();
+
+      // Only owner/admin can delete
+      allow delete: if isAuthenticated();
+    }
+
+    // Expenses collection
+    match /expenses/{expenseId} {
+      // Members can read expenses
+      allow read: if isMember(resource.data.ledgerId);
+
+      // Members can create expenses
+      allow create: if isAuthenticated();
+
+      // Creator or admin can update
+      allow update: if isAuthenticated() &&
+        (resource.data.createdBy == request.auth.uid ||
+         hasRole(resource.data.ledgerId, ['owner', 'admin']));
+
+      // Creator or admin can delete
+      allow delete: if isAuthenticated() &&
+        (resource.data.createdBy == request.auth.uid ||
+         hasRole(resource.data.ledgerId, ['owner', 'admin']));
+    }
+  }
+}

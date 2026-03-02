@@ -1,0 +1,24 @@
+{
+  "teamName": "sync-debug",
+  "workerCount": 3,
+  "agentTypes": [
+    "claude",
+    "claude",
+    "claude"
+  ],
+  "tasks": [
+    {
+      "subject": "分析同步错误日志",
+      "description": "检查 CloudSyncContext.tsx 中的 syncNow 函数实现，查看控制台错误日志，分析 Firestore 权限问题"
+    },
+    {
+      "subject": "检查 Firestore 权限规则",
+      "description": "检查 firestore.rules 文件，确保权限规则正确允许成员读写账本和支出数据"
+    },
+    {
+      "subject": "修复 Firestore 服务层错误",
+      "description": "检查 firestoreService.ts 中的 getLedger, createLedger, updateLedger 等函数，确保正确处理错误"
+    }
+  ],
+  "cwd": "/home/deliqiao/jetdev/github/travel-finance-helper"
+}
