@@ -43,7 +43,8 @@ export async function migrateLocalToCloud(
   await createLedger(cloudLedger);
 
   // Add owner as member
-  const memberId = crypto.randomUUID();
+  // Member ID must be in format: {ledgerId}_{userId} for Firestore security rules
+  const memberId = `${ledgerId}_${userId}`;
   const member: LedgerMember = {
     id: memberId,
     ledgerId,
@@ -89,6 +90,7 @@ function convertLocalExpenseToCloud(
     category: category as Category,
     payerId: expense.payerId,
     sharedWithFamilyIds: expense.sharedWithFamilyIds || [],
+    version: expense.version || 1,  // Add version field
     createdAt: null as never,
     updatedAt: null as never,
   };
@@ -142,6 +144,8 @@ function convertCloudExpenseToLocal(expense: CloudExpense): Expense {
     category: expense.category,
     payerId: expense.payerId,
     sharedWithFamilyIds: expense.sharedWithFamilyIds,
+    version: expense.version || 1,  // Include version for sync
+    updatedAt: expense.updatedAt ? expense.updatedAt.seconds * 1000 : undefined,  // Include updatedAt
   };
 }
 

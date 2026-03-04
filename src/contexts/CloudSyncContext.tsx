@@ -7,11 +7,15 @@ import {
   subscribeToUserLedgers,
   createExpense,
   updateExpense,
+  softDeleteExpense,
   deleteExpense,
   getExpenses,
   subscribeToExpenses,
+  addMember,
+  getLedgerMembers,
   CloudLedger,
   CloudExpense,
+  LedgerMember,
 } from '../../services/firestoreService';
 import { AppState, Expense, Family } from '../../types';
 
@@ -25,6 +29,8 @@ export interface CloudSyncState {
   pendingChanges: number;
   error: string | null;
   isCloudEnabled: boolean;
+  cloudLedgers: CloudLedger[];  // List of user's cloud ledgers
+  isLoadingLedgers: boolean;    // Loading state for ledger list
 }
 
 export interface CloudSyncContextType extends CloudSyncState {
@@ -35,6 +41,7 @@ export interface CloudSyncContextType extends CloudSyncState {
   loadFromCloud: (ledgerId: string) => Promise<AppState | null>;
   subscribeToLedgerUpdates: (ledgerId: string, callback: (data: AppState) => void) => () => void;
   markPendingChange: () => void;
+  refreshCloudLedgers: () => void;  // Manual refresh function
 }
 
 // Create context with undefined as default (will be set by provider)
@@ -48,6 +55,8 @@ const initialState: CloudSyncState = {
   pendingChanges: 0,
   error: null,
   isCloudEnabled: false,
+  cloudLedgers: [],
+  isLoadingLedgers: false,
 };
 
 interface CloudSyncProviderProps {
@@ -58,6 +67,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
   const [state, setState] = useState<CloudSyncState>(initialState);
   const auth = useAuth();
   const subscriptionsRef = useRef<(() => void)[]>([]);
+  const ledgerSubscriptionRef = useRef<(() => void) | null>(null);
 
   // Check if user is logged in (cloud sync requires authentication)
   const isAuthenticated = auth.user !== null;
@@ -88,6 +98,39 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
   const markPendingChange = useCallback(() => {
     setState((prev) => ({ ...prev, pendingChanges: prev.pendingChanges + 1 }));
   }, []);
+
+  // Refresh cloud ledgers - manual trigger
+  const refreshCloudLedgers = useCallback(() => {
+    if (!isAuthenticated || !state.isCloudEnabled || !auth.user) {
+      console.log('Cannot refresh ledgers: not authenticated or cloud disabled');
+      return;
+    }
+
+    // Clean up existing subscription
+    if (ledgerSubscriptionRef.current) {
+      ledgerSubscriptionRef.current();
+    }
+
+    setState((prev) => ({ ...prev, isLoadingLedgers: true }));
+
+    // Subscribe to user's ledgers
+    const unsubscribe = subscribeToUserLedgers(auth.user.uid, (ledgers) => {
+      console.log('Received cloud ledgers update:', ledgers.length, 'ledgers');
+      setState((prev) => ({
+        ...prev,
+        cloudLedgers: ledgers,
+        isLoadingLedgers: false,
+      }));
+    });
+
+    ledgerSubscriptionRef.current = unsubscribe;
+  }, [isAuthenticated, state.isCloudEnabled, auth.user]);
+
+  // Track locally deleted expense IDs for sync
+  const locallyDeletedIdsRef = useRef<Set<string>>(new Set());
+
+  // Track synced expense IDs to detect deletions
+  const lastSyncedIdsRef = useRef<Set<string>>(new Set());
 
   // Sync ledger data to Firestore (bidirectional)
   const syncNow = useCallback(async (ledgerId: string, data: AppState): Promise<void> => {
@@ -146,14 +189,61 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
           originCountry: data.originCountry,
         } as CloudLedger;
         await createLedger(cloudLedger);
+
+        // Add current user as a member (owner role)
+        // This is required for subscribeToUserLedgers to find the ledger
+        // Member ID must be in format: {ledgerId}_{userId} for Firestore security rules
+        const memberId = `${ledgerId}_${auth.user!.uid}`;
+        const member: LedgerMember = {
+          id: memberId,
+          ledgerId,
+          userId: auth.user!.uid,
+          role: 'owner',
+          joinedAt: null as never,
+          displayName: auth.user!.displayName || auth.user!.email?.split('@')[0] || 'User',
+        };
+        await addMember(ledgerId, member);
+        console.log('Created ledger member record for user:', auth.user!.uid, 'with id:', memberId);
       }
 
-      // Get existing expenses from cloud
+      // Get existing expenses from cloud (including soft-deleted ones)
       const existingExpenses = await getExpenses(ledgerId);
+      const activeCloudExpenses = existingExpenses.filter(e => !e.deletedAt);
+      const deletedCloudExpenseIds = new Set(
+        existingExpenses.filter(e => e.deletedAt).map(e => e.id)
+      );
+
       const existingExpenseIds = new Set(existingExpenses.map(e => e.id));
       const localExpenseIds = new Set(data.expenses.map(e => e.id));
 
-      // Upload new local expenses that don't exist in cloud
+      // Track previously synced IDs to detect local deletions
+      const previousSyncedIds = lastSyncedIdsRef.current;
+      const currentLocalIds = new Set(data.expenses.map(e => e.id));
+
+      // Detect locally deleted expenses (were in previous sync, not in current local)
+      const locallyDeletedIds = new Set<string>();
+      previousSyncedIds.forEach(id => {
+        if (!currentLocalIds.has(id) && existingExpenseIds.has(id)) {
+          locallyDeletedIds.add(id);
+        }
+      });
+
+      // Soft delete in cloud for locally deleted expenses
+      for (const expenseId of locallyDeletedIds) {
+        if (!deletedCloudExpenseIds.has(expenseId)) {
+          try {
+            const cloudExp = existingExpenses.find(e => e.id === expenseId);
+            if (cloudExp) {
+              await softDeleteExpense(ledgerId, expenseId, cloudExp.version || 1);
+              console.log('Soft deleted expense in cloud:', expenseId);
+            }
+          } catch (err) {
+            console.error('Failed to soft delete expense:', expenseId, err);
+          }
+        }
+      }
+
+      // Upload new local expenses that don't exist in cloud (and aren't soft-deleted)
       for (const expense of data.expenses) {
         if (!existingExpenseIds.has(expense.id)) {
           const cloudExpense: Omit<CloudExpense, 'createdAt' | 'updatedAt'> = {
@@ -167,6 +257,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             category: expense.category,
             payerId: expense.payerId,
             sharedWithFamilyIds: expense.sharedWithFamilyIds || [],
+            version: expense.version || 1,
           };
 
           try {
@@ -177,9 +268,12 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
         }
       }
 
-      // Download expenses from cloud that don't exist locally
+      // Update lastSyncedIds for next sync
+      lastSyncedIdsRef.current = new Set(data.expenses.map(e => e.id));
+
+      // Download active expenses from cloud that don't exist locally
       const newCloudExpenses: Expense[] = [];
-      for (const cloudExp of existingExpenses) {
+      for (const cloudExp of activeCloudExpenses) {
         if (!localExpenseIds.has(cloudExp.id)) {
           newCloudExpenses.push({
             id: cloudExp.id,
@@ -192,6 +286,8 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             createdBy: cloudExp.createdBy,
             createdByDisplayName: cloudExp.createdByDisplayName,
             createdAt: cloudExp.createdAt ? cloudExp.createdAt.seconds * 1000 : undefined,
+            version: cloudExp.version || 1,
+            updatedAt: cloudExp.updatedAt ? cloudExp.updatedAt.seconds * 1000 : undefined,
           });
         }
       }
@@ -232,12 +328,17 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
         return null;
       }
 
-      const expenses = await getExpenses(ledgerId);
+      const allExpenses = await getExpenses(ledgerId);
+      // Filter out soft-deleted expenses
+      const activeExpenses = allExpenses.filter(e => !e.deletedAt);
+
+      // Update lastSyncedIds for deletion tracking
+      lastSyncedIdsRef.current = new Set(activeExpenses.map(e => e.id));
 
       // Convert cloud data to app state with creator info
       const appState: AppState = {
         ledgerName: ledger.name,
-        expenses: expenses.map((e) => ({
+        expenses: activeExpenses.map((e) => ({
           id: e.id,
           date: e.date,
           description: e.description,
@@ -248,6 +349,8 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
           createdBy: e.createdBy,
           createdByDisplayName: e.createdByDisplayName,
           createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+          version: e.version || 1,
+          updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,
         })),
         exchangeRate: ledger.exchangeRate,
         families: ledger.families,
@@ -278,10 +381,12 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
     const unsubLedger = subscribeToUserLedgers(auth.user!.uid, async (ledgers) => {
       const ledger = ledgers.find(l => l.id === ledgerId);
       if (ledger) {
-        const expenses = await getExpenses(ledgerId);
+        const allExpenses = await getExpenses(ledgerId);
+        // Filter out soft-deleted expenses
+        const activeExpenses = allExpenses.filter(e => !e.deletedAt);
         const appState: AppState = {
           ledgerName: ledger.name,
-          expenses: expenses.map((e) => ({
+          expenses: activeExpenses.map((e) => ({
             id: e.id,
             date: e.date,
             description: e.description,
@@ -292,6 +397,8 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             createdBy: e.createdBy,
             createdByDisplayName: e.createdByDisplayName,
             createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+            version: e.version || 1,
+            updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,
           })),
           exchangeRate: ledger.exchangeRate,
           families: ledger.families,
@@ -309,9 +416,11 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
     const unsubExpenses = subscribeToExpenses(ledgerId, async (expenses) => {
       const ledger = await getLedger(ledgerId);
       if (ledger) {
+        // Filter out soft-deleted expenses
+        const activeExpenses = expenses.filter(e => !e.deletedAt);
         const appState: AppState = {
           ledgerName: ledger.name,
-          expenses: expenses.map((e) => ({
+          expenses: activeExpenses.map((e) => ({
             id: e.id,
             date: e.date,
             description: e.description,
@@ -322,6 +431,8 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
             createdBy: e.createdBy,
             createdByDisplayName: e.createdByDisplayName,
             createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+            version: e.version || 1,
+            updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,
           })),
           exchangeRate: ledger.exchangeRate,
           families: ledger.families,
@@ -397,9 +508,46 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
       // Cleanup subscriptions on logout
       subscriptionsRef.current.forEach(unsubscribe => unsubscribe());
       subscriptionsRef.current = [];
-      setState((prev) => ({ ...prev, isCloudEnabled: false, syncStatus: 'idle' }));
+      if (ledgerSubscriptionRef.current) {
+        ledgerSubscriptionRef.current();
+        ledgerSubscriptionRef.current = null;
+      }
+      setState((prev) => ({
+        ...prev,
+        isCloudEnabled: false,
+        syncStatus: 'idle',
+        cloudLedgers: [],
+        isLoadingLedgers: false,
+      }));
     }
   }, [isAuthenticated, state.isCloudEnabled]);
+
+  // Subscribe to cloud ledgers when cloud is enabled and user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && state.isCloudEnabled && auth.user) {
+      console.log('Subscribing to cloud ledgers for user:', auth.user.uid);
+
+      setState((prev) => ({ ...prev, isLoadingLedgers: true }));
+
+      const unsubscribe = subscribeToUserLedgers(auth.user.uid, (ledgers) => {
+        console.log('Received cloud ledgers update:', ledgers.length, 'ledgers');
+        setState((prev) => ({
+          ...prev,
+          cloudLedgers: ledgers,
+          isLoadingLedgers: false,
+        }));
+      });
+
+      ledgerSubscriptionRef.current = unsubscribe;
+
+      return () => {
+        if (ledgerSubscriptionRef.current) {
+          ledgerSubscriptionRef.current();
+          ledgerSubscriptionRef.current = null;
+        }
+      };
+    }
+  }, [isAuthenticated, state.isCloudEnabled, auth.user]);
 
   const value: CloudSyncContextType = {
     ...state,
@@ -410,6 +558,7 @@ export const CloudSyncProvider: React.FC<CloudSyncProviderProps> = ({ children }
     loadFromCloud,
     subscribeToLedgerUpdates,
     markPendingChange,
+    refreshCloudLedgers,
   };
 
   return <CloudSyncContext.Provider value={value}>{children}</CloudSyncContext.Provider>;

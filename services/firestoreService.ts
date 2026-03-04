@@ -263,6 +263,8 @@ export function subscribeToUserLedgers(
   userId: string,
   callback: (ledgers: CloudLedger[]) => void
 ): () => void {
+  console.log('[subscribeToUserLedgers] Setting up subscription for user:', userId);
+
   const membersQuery = query(
     collection(db, COLLECTIONS.MEMBERS),
     where('userId', '==', userId)
@@ -270,6 +272,7 @@ export function subscribeToUserLedgers(
 
   const unsubscribe = onSnapshot(membersQuery, async (membersSnapshot) => {
     const ledgerIds = membersSnapshot.docs.map((doc) => doc.data().ledgerId);
+    console.log('[subscribeToUserLedgers] Found member records:', ledgerIds.length, 'ledgers:', ledgerIds);
 
     if (ledgerIds.length === 0) {
       callback([]);
@@ -278,15 +281,24 @@ export function subscribeToUserLedgers(
 
     const ledgers: CloudLedger[] = [];
     for (const ledgerId of ledgerIds) {
-      const ledger = await getLedger(ledgerId);
-      if (ledger) {
-        ledgers.push(ledger);
+      try {
+        const ledger = await getLedger(ledgerId);
+        if (ledger) {
+          console.log('[subscribeToUserLedgers] Successfully fetched ledger:', ledgerId, ledger.name);
+          ledgers.push(ledger);
+        } else {
+          console.warn('[subscribeToUserLedgers] Ledger not found:', ledgerId);
+        }
+      } catch (err) {
+        // Log the error but continue with other ledgers
+        console.error('[subscribeToUserLedgers] Error fetching ledger:', ledgerId, err);
       }
     }
 
+    console.log('[subscribeToUserLedgers] Returning', ledgers.length, 'ledgers');
     callback(ledgers);
   }, (error) => {
-    console.error('Error subscribing to user ledgers:', error);
+    console.error('[subscribeToUserLedgers] Error subscribing to user ledgers:', error);
     callback([]);
   });
 
@@ -440,6 +452,7 @@ export async function createExpense(ledgerId: string, expense: CloudExpense): Pr
 
     await setDoc(expenseRef, {
       ...expense,
+      version: expense.version || 1,  // Initialize version
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -477,6 +490,8 @@ export async function getExpenses(ledgerId: string): Promise<CloudExpense[]> {
         sharedWithFamilyIds: data.sharedWithFamilyIds,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
+        version: data.version || 1,  // Include version
+        deletedAt: data.deletedAt || null,  // Include deletedAt for soft delete
       } as CloudExpense;
     });
 
@@ -510,11 +525,34 @@ export async function updateExpense(
     if (data.category !== undefined) updateData.category = data.category;
     if (data.payerId !== undefined) updateData.payerId = data.payerId;
     if (data.sharedWithFamilyIds !== undefined) updateData.sharedWithFamilyIds = data.sharedWithFamilyIds;
+    if (data.version !== undefined) updateData.version = data.version;
 
     await updateDoc(expenseRef, updateData);
   } catch (error) {
     console.error('Error updating expense:', error);
     throw new Error(`Failed to update expense: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Soft delete an expense (sets deletedAt timestamp)
+ */
+export async function softDeleteExpense(
+  ledgerId: string,
+  expenseId: string,
+  currentVersion: number
+): Promise<void> {
+  try {
+    const expenseRef = doc(db, COLLECTIONS.EXPENSES, expenseId);
+
+    await updateDoc(expenseRef, {
+      deletedAt: serverTimestamp(),
+      version: currentVersion + 1,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error soft deleting expense:', error);
+    throw new Error(`Failed to delete expense: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -560,6 +598,8 @@ export function subscribeToExpenses(
         sharedWithFamilyIds: data.sharedWithFamilyIds,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
+        version: data.version || 1,  // Include version for conflict resolution
+        deletedAt: data.deletedAt || null,  // Include deletedAt for soft delete
       } as CloudExpense;
     });
 
