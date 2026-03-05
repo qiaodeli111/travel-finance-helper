@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogIn, UserPlus, Eye } from 'lucide-react';
+import { LogIn, UserPlus, Eye, AlertCircle } from 'lucide-react';
 import { useTranslation } from '../i18n/useTranslation';
 
 interface LoginPromptModalProps {
@@ -53,9 +53,18 @@ export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({
             {t('register', '注册新账号')}
           </button>
 
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-200"></div>
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-3 text-sm text-gray-400">{t('or', '或')}</span>
+            </div>
+          </div>
+
           <button
             onClick={onGuest}
-            className="w-full py-3 px-4 text-gray-500 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-50 transition-all"
+            className="w-full py-3 px-4 text-gray-600 rounded-xl font-medium flex items-center justify-center gap-2 hover:bg-gray-50 transition-all border border-gray-200"
           >
             <Eye size={20} />
             {t('guestMode', '游客模式体验')}
@@ -64,9 +73,15 @@ export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({
 
         {/* Warning */}
         <div className="px-6 pb-6">
-          <p className="text-xs text-center text-orange-500 bg-orange-50 rounded-lg p-3">
-            {t('guestModeWarning', '游客模式数据仅保存在当前浏览器，关闭后将丢失')}
-          </p>
+          <div className="flex items-start gap-2 text-xs text-orange-600 bg-orange-50 rounded-lg p-3">
+            <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">{t('guestModeWarningTitle', '游客模式说明')}</p>
+              <p className="mt-1 text-orange-500">
+                {t('guestModeWarning', '游客模式数据仅保存在当前浏览器会话中，关闭浏览器后将丢失。建议登录账号以保存数据。')}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

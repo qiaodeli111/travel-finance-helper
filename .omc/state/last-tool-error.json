@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"pkill -f \\\"vite\\\" 2>/dev/null; sleep 1; npm run dev 2>&1 &\\nsleep 5\\necho \\\"Checking server...\\\"\\ncurl -s http://localhost:3001 > /dev/null 2>&1 && echo \\\"Server running on 3001\\\" || curl ...",
-  "error": "Exit code 144",
-  "timestamp": "2026-03-04T17:51:28.581Z",
-  "retry_count": 1
-}

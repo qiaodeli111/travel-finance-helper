@@ -182,20 +182,26 @@
   "hotPaths": [
     {
       "path": "App.tsx",
-      "accessCount": 9,
-      "lastAccessed": 1772645005856,
+      "accessCount": 112,
+      "lastAccessed": 1772698979028,
       "type": "directory"
     },
     {
+      "path": "components/LedgerManagePanel.tsx",
+      "accessCount": 26,
+      "lastAccessed": 1772696465596,
+      "type": "file"
+    },
+    {
       "path": "services/firestoreService.ts",
-      "accessCount": 6,
-      "lastAccessed": 1772645926006,
+      "accessCount": 12,
+      "lastAccessed": 1772697922938,
       "type": "file"
     },
     {
       "path": "src/contexts/CloudSyncContext.tsx",
-      "accessCount": 6,
-      "lastAccessed": 1772646450536,
+      "accessCount": 9,
+      "lastAccessed": 1772696490963,
       "type": "file"
     },
     {
@@ -211,10 +217,10 @@
       "type": "file"
     },
     {
-      "path": "components/LedgerManagePanel.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1772644975513,
-      "type": "file"
+      "path": "",
+      "accessCount": 3,
+      "lastAccessed": 1772674050357,
+      "type": "directory"
     },
     {
       "path": "services/collaborationService.ts",
@@ -223,10 +229,22 @@
       "type": "file"
     },
     {
-      "path": "",
+      "path": "types/firestore.ts",
       "accessCount": 2,
-      "lastAccessed": 1772645936153,
-      "type": "directory"
+      "lastAccessed": 1772674074352,
+      "type": "file"
+    },
+    {
+      "path": "components/LoginPromptModal.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1772698278051,
+      "type": "file"
+    },
+    {
+      "path": "components/GuestLedgerSyncModal.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1772698328507,
+      "type": "file"
     },
     {
       "path": "services/firebaseConfig.ts",
@@ -235,9 +253,21 @@
       "type": "file"
     },
     {
-      "path": "types/firestore.ts",
+      "path": "components/WelcomeWizard.tsx",
       "accessCount": 1,
-      "lastAccessed": 1772645177063,
+      "lastAccessed": 1772696490649,
+      "type": "file"
+    },
+    {
+      "path": "src/contexts/AuthContext.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1772696490844,
+      "type": "file"
+    },
+    {
+      "path": "services/storageService.ts",
+      "accessCount": 1,
+      "lastAccessed": 1772696490901,
       "type": "file"
     }
   ],

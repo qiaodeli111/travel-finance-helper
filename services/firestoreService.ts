@@ -133,6 +133,42 @@ export async function updateUserProfile(uid: string, data: Partial<UserProfile>)
   }
 }
 
+/**
+ * Update user's default ledger ID
+ */
+export async function updateUserDefaultLedger(uid: string, ledgerId: string): Promise<void> {
+  try {
+    const userRef = doc(db, COLLECTIONS.USERS, uid);
+    await updateDoc(userRef, {
+      defaultLedgerId: ledgerId,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error updating default ledger:', error);
+    throw new Error(`Failed to update default ledger: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
+
+/**
+ * Get user's default ledger ID
+ */
+export async function getUserDefaultLedger(uid: string): Promise<string | null> {
+  try {
+    const userRef = doc(db, COLLECTIONS.USERS, uid);
+    const userSnap = await getDoc(userRef);
+
+    if (!userSnap.exists()) {
+      return null;
+    }
+
+    const data = userSnap.data();
+    return data.defaultLedgerId || null;
+  } catch (error) {
+    console.error('Error getting default ledger:', error);
+    return null;
+  }
+}
+
 // ==================== LEDGER OPERATIONS ====================
 
 /**

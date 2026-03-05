@@ -3,8 +3,7 @@ import { X, BookOpen, MapPin, Users, Globe, Cloud, CloudOff, Star, StarOff, Tras
 import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useCloudSync } from '../src/contexts/CloudSyncContext';
-import { loadLedger, deleteLedger, saveLedger } from '../services/storageService';
-import { updateLedger, deleteLedger as deleteCloudLedger } from '../services/firestoreService';
+import { getLedger } from '../services/firestoreService';
 import { AppState, Family } from '../types';
 
 interface LedgerMeta {
@@ -59,69 +58,44 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [downloading, setDownloading] = useState(false);
 
+  // Load ledger data from cloud when selected
   useEffect(() => {
     if (selectedLedger) {
-      const data = loadLedger(selectedLedger.id);
-      setLedgerData(data);
+      const loadLedgerData = async () => {
+        setLoading(true);
+        try {
+          const cloudLedger = await getLedger(selectedLedger.id);
+          if (cloudLedger) {
+            // Convert to AppState format
+            const appState: AppState = {
+              ledgerName: cloudLedger.name,
+              expenses: [], // Expenses are loaded separately via subscription
+              exchangeRate: cloudLedger.exchangeRate,
+              families: cloudLedger.families,
+              currencyCode: cloudLedger.currencyCode,
+              destination: cloudLedger.destination,
+              baseCurrency: cloudLedger.baseCurrency,
+              originCountry: cloudLedger.originCountry || '中国',
+              lastUpdated: Date.now(),
+            };
+            setLedgerData(appState);
+          }
+        } catch (err) {
+          console.error('Failed to load ledger from cloud:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      loadLedgerData();
     }
   }, [selectedLedger]);
 
-  // Merge local ledgers with cloud ledgers
-  const allLedgers = React.useMemo(() => {
-    const localIds = new Set(ledgers.map(l => l.id));
-    const cloudOnlyLedgers: LedgerMeta[] = cloudLedgers
-      .filter(cl => !localIds.has(cl.id))
-      .map(cl => {
-        // Handle updatedAt - it could be a Firestore Timestamp object or a number
-        let lastAccess = 0;
-        if (cl.updatedAt) {
-          if (typeof cl.updatedAt === 'object' && 'seconds' in cl.updatedAt) {
-            lastAccess = (cl.updatedAt as { seconds: number; nanoseconds: number }).seconds * 1000;
-          } else if (typeof cl.updatedAt === 'number') {
-            lastAccess = cl.updatedAt;
-          }
-        }
+  // Pure remote: ledgers come directly from props (which are from cloudLedgers)
+  const displayLedgers = ledgers;
 
-        return {
-          id: cl.id,
-          name: cl.name,
-          lastAccess,
-          isCloudSynced: true,
-          ownerId: cl.ownerId,
-          status: cl.status as 'active' | 'archived' | undefined,
-          isFromCloud: true,
-        };
-      });
-
-    return [...ledgers, ...cloudOnlyLedgers];
-  }, [ledgers, cloudLedgers]);
-
-  // Handle download cloud ledger
-  const handleDownloadCloudLedger = async (ledgerId: string) => {
-    if (!onDownloadCloudLedger) {
-      // Default implementation
-      setDownloading(true);
-      try {
-        const cloudData = await loadFromCloud(ledgerId);
-        if (cloudData) {
-          saveLedger(ledgerId, cloudData);
-          // Refresh the parent component
-          onRefresh();
-          // Select the newly downloaded ledger
-          const newLedger = allLedgers.find(l => l.id === ledgerId);
-          if (newLedger) {
-            setSelectedLedger({ ...newLedger, isFromCloud: false });
-            setLedgerData(cloudData);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to download cloud ledger:', err);
-      } finally {
-        setDownloading(false);
-      }
-    } else {
-      await onDownloadCloudLedger(ledgerId);
-    }
+  // Handle select ledger - pure remote, just select it
+  const handleSelectLedger = (ledger: LedgerMeta) => {
+    setSelectedLedger(ledger);
   };
 
   if (!isOpen) return null;
@@ -182,7 +156,7 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
             </div>
             <div>
               <h2 className="font-bold text-lg">{t('ledgerManage')}</h2>
-              <p className="text-sky-100 text-xs">{allLedgers.length} {t('ledgersCount', 'ledgers')}</p>
+              <p className="text-sky-100 text-xs">{displayLedgers.length} {t('ledgersCount', 'ledgers')}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -211,7 +185,7 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
                 <p className="text-sm">{t('loadingCloudLedgers', 'Loading cloud ledgers...')}</p>
               </div>
             )}
-            {allLedgers.map((ledger) => (
+            {displayLedgers.map((ledger) => (
               <div
                 key={ledger.id}
                 onClick={() => setSelectedLedger(ledger)}
@@ -225,27 +199,15 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
                       <Star size={16} className="text-yellow-500 fill-yellow-500" />
                     )}
                     <span className="font-medium text-gray-800">{ledger.name}</span>
-                    {ledger.isFromCloud && (
-                      <span className="px-1.5 py-0.5 bg-sky-100 text-sky-600 text-xs rounded">
-                        {t('cloudOnly', 'Cloud')}
-                      </span>
-                    )}
                   </div>
-                  {ledger.isCloudSynced || ledger.isFromCloud ? (
-                    <Cloud size={16} className="text-sky-500" />
-                  ) : (
-                    <CloudOff size={16} className="text-gray-300" />
-                  )}
+                  <Cloud size={16} className="text-sky-500" />
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {ledger.isFromCloud
-                    ? t('availableInCloud', 'Available in cloud')
-                    : `${t('lastSynced')}: ${formatDate(ledger.lastAccess)}`
-                  }
+                  {t('lastSynced')}: {formatDate(ledger.lastAccess)}
                 </p>
               </div>
             ))}
-            {allLedgers.length === 0 && !isLoadingLedgers && (
+            {displayLedgers.length === 0 && !isLoadingLedgers && (
               <div className="p-8 text-center text-gray-400">
                 <BookOpen size={48} className="mx-auto mb-3 opacity-50" />
                 <p>{t('noLedgers', 'No ledgers yet')}</p>
@@ -257,41 +219,7 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
           <div className="w-1/2 p-4 overflow-y-auto">
             {selectedLedger ? (
               <div className="space-y-4">
-                {/* Cloud-only ledger (not downloaded yet) */}
-                {selectedLedger.isFromCloud ? (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
-                      {selectedLedger.status === 'archived' && (
-                        <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs font-medium rounded-lg flex items-center gap-1">
-                          <Archive size={12} />
-                          {t('archived', 'Archived')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 p-4 bg-sky-50 rounded-xl">
-                      <Cloud size={24} className="text-sky-500" />
-                      <div>
-                        <p className="text-sky-700 font-medium">{t('cloudLedger', 'Cloud Ledger')}</p>
-                        <p className="text-sky-500 text-xs">{t('notDownloaded', 'Not downloaded to this device')}</p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleDownloadCloudLedger(selectedLedger.id)}
-                      disabled={downloading}
-                      className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-xl font-medium hover:from-sky-600 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
-                    >
-                      {downloading ? (
-                        <Loader2 size={18} className="animate-spin" />
-                      ) : (
-                        <Download size={18} />
-                      )}
-                      {downloading ? t('downloading', 'Downloading...') : t('downloadToLocall', 'Download to Device')}
-                    </button>
-                  </>
-                ) : ledgerData ? (
+                {ledgerData ? (
                   <>
                     <div className="flex items-center justify-between">
                       <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
@@ -313,24 +241,10 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
                       </div>
                     )}
 
-                    {/* Local/Cloud Status */}
+                    {/* Cloud Status */}
                     <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
-                      {selectedLedger.isLocal ? (
-                        <>
-                          <CloudOff size={20} className="text-gray-400" />
-                          <span className="text-gray-500 font-medium">{t('localLedger')}</span>
-                        </>
-                      ) : selectedLedger.isCloudSynced ? (
-                        <>
-                          <Cloud size={20} className="text-sky-500" />
-                          <span className="text-sky-600 font-medium">{t('onlineLedger')}</span>
-                        </>
-                      ) : (
-                        <>
-                          <CloudOff size={20} className="text-gray-400" />
-                          <span className="text-gray-500">{t('cloudSyncDisabled')}</span>
-                        </>
-                      )}
+                      <Cloud size={20} className="text-sky-500" />
+                      <span className="text-sky-600 font-medium">{t('onlineLedger')}</span>
                     </div>
 
                     {/* Details */}

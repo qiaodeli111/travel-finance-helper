@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, CheckCircle, Trash2, ChevronDown, FolderPlus, FileInput, FileText, Download, Wallet, RefreshCw, Settings, Plane, MapPin, Globe, Compass, Languages, User, LogOut, Cloud, Users, BookOpen, Star, Archive } from 'lucide-react';
 import { AppState, Family, COUNTRIES, ORIGIN_COUNTRIES } from './types';
 import { ExpenseForm } from './components/ExpenseForm';
@@ -14,7 +14,8 @@ import { UserProfileModal } from './components/UserProfileModal';
 import { LedgerManagePanel } from './components/LedgerManagePanel';
 import { LoginPromptModal } from './components/LoginPromptModal';
 import { WelcomeWizard } from './components/WelcomeWizard';
-import { createLedgerId, saveLedger, loadLedger, deleteLedger } from './services/storageService';
+import { GuestLedgerSyncModal } from './components/GuestLedgerSyncModal';
+import { createLedgerId } from './services/storageService';
 import { exportToMarkdown, exportToPDF } from './services/exportService';
 import { useTranslation } from './i18n/useTranslation';
 import { Language, LANGUAGE_NAMES, getLanguageByCurrency } from './i18n/translations';
@@ -74,7 +75,7 @@ const App: React.FC = () => {
 
   // --- Auth & Cloud Sync ---
   const { user, signOut, loading: authLoading } = useAuth();
-  const { isCloudEnabled, enableCloud, syncNow, markPendingChange, loadFromCloud } = useCloudSync();
+  const { isCloudEnabled, enableCloud, syncNow, markPendingChange, loadFromCloud, cloudLedgers } = useCloudSync();
 
   // Auto-set language based on origin country
   const updateLanguageFromOrigin = useCallback((originCountry: string) => {
@@ -87,12 +88,30 @@ const App: React.FC = () => {
   }, [setLanguage]);
 
   // --- Global State ---
-  const [ledgers, setLedgers] = useState<LedgerMeta[]>(() => {
-    try {
-      const saved = localStorage.getItem(LEDGER_LIST_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  // For cloud-only mode: ledgers come directly from cloudLedgers
+  // No local storage for ledger list - pure remote architecture
+  const ledgers = React.useMemo(() => {
+    return cloudLedgers.map(cl => {
+      // Handle updatedAt - it could be a Firestore Timestamp object or a number
+      let lastAccess = 0;
+      if (cl.updatedAt) {
+        if (typeof cl.updatedAt === 'object' && 'seconds' in cl.updatedAt) {
+          lastAccess = (cl.updatedAt as { seconds: number; nanoseconds: number }).seconds * 1000;
+        } else if (typeof cl.updatedAt === 'number') {
+          lastAccess = cl.updatedAt;
+        }
+      }
+
+      return {
+        id: cl.id,
+        name: cl.name,
+        lastAccess,
+        isCloudSynced: true,
+        ownerId: cl.ownerId,
+        status: cl.status as 'active' | 'archived' | undefined,
+      };
+    });
+  }, [cloudLedgers]);
 
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -114,10 +133,21 @@ const App: React.FC = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
+  // Guest mode state - stored in memory only, lost on browser close
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [guestLedgers, setGuestLedgers] = useState<Array<{
+    id: string;
+    name: string;
+    data: AppState;
+    createdAt: number;
+  }>>([]);
+  const [showGuestSyncModal, setShowGuestSyncModal] = useState(false);
+
   // Check if current ledger is archived
   const currentLedger = ledgers.find(l => l.id === activeId);
   const isArchived = currentLedger?.status === 'archived';
   const [rateLoading, setRateLoading] = useState(false);
+
   const [currentUserRole, setCurrentUserRole] = useState<'owner' | 'admin' | 'member' | 'viewer' | null>(null);
   const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState<string | null>(null);
   const [inviteMode, setInviteMode] = useState<'create' | 'join'>('create');
@@ -153,12 +183,24 @@ const App: React.FC = () => {
 
   // --- Show Login Prompt on first visit ---
   useEffect(() => {
-    const hasVisitedBefore = localStorage.getItem('has_visited_before');
-    if (!hasVisitedBefore && !user) {
-      setShowLoginPrompt(true);
-      localStorage.setItem('has_visited_before', 'true');
+    // Only show login prompt if user is not logged in and not in guest mode
+    if (!user && !isGuestMode) {
+      const hasVisitedBefore = localStorage.getItem('has_visited_before');
+      if (!hasVisitedBefore) {
+        setShowLoginPrompt(true);
+        localStorage.setItem('has_visited_before', 'true');
+      }
     }
-  }, [user]);
+  }, [user, isGuestMode]);
+
+  // --- Handle guest-to-cloud sync after login ---
+  useEffect(() => {
+    if (user && guestLedgers.length > 0 && isGuestMode) {
+      // User just logged in and has guest ledgers - show sync modal
+      setShowGuestSyncModal(true);
+      setIsGuestMode(false);
+    }
+  }, [user, guestLedgers, isGuestMode]);
 
   // --- Check for local ledgers that need migration after login ---
   useEffect(() => {
@@ -177,53 +219,68 @@ const App: React.FC = () => {
   }, [user, ledgers]);
 
   // --- Persistence of Ledger List ---
-  useEffect(() => {
-    localStorage.setItem(LEDGER_LIST_KEY, JSON.stringify(ledgers));
-  }, [ledgers]);
+  // Removed: ledgers now come directly from cloudLedgers (pure remote architecture)
 
   // --- Initialization Logic ---
   const initApp = useCallback(async () => {
-    if (ledgers.length > 0) {
-      // Load the most recently accessed ledger
-      const mostRecent = ledgers.sort((a, b) => b.lastAccess - a.lastAccess)[0];
-      setActiveId(mostRecent.id);
+    // For logged-in users with cloud ledgers
+    if (user && ledgers.length > 0) {
+      // Try to load default ledger from cloud first
+      let targetLedgerId = defaultLedgerId;
 
-      const data = loadLedger(mostRecent.id);
-      if (data) {
-        // Migration logic for old data
-        if (!data.families) {
-          data.families = [
-            { id: 'f1', name: '家庭 1', count: (data as any).family1Count || 4 },
-            { id: 'f2', name: '家庭 2', count: (data as any).family2Count || 2 }
-          ];
-          data.currencyCode = 'IDR';
-          data.destination = '印度尼西亚';
+      // If no local default, try to get from cloud
+      if (!targetLedgerId) {
+        try {
+          const { getUserDefaultLedger } = await import('./services/firestoreService');
+          const cloudDefault = await getUserDefaultLedger(user.uid);
+          if (cloudDefault) {
+            targetLedgerId = cloudDefault;
+            setDefaultLedgerId(cloudDefault);
+            localStorage.setItem('default_ledger_id', cloudDefault);
+          }
+        } catch (err) {
+          console.error('Failed to get default ledger from cloud:', err);
         }
-        // Migration: add baseCurrency and originCountry if missing
-        if (!data.baseCurrency) {
-          data.baseCurrency = 'CNY';
-        }
-        if (!data.originCountry) {
-          data.originCountry = '中国';
-        }
-        setState(data);
-        updateLanguageFromOrigin(data.originCountry);
       }
-    } else {
-      // First time user: Show welcome wizard instead of auto-creating
-      setShowWelcomeWizard(true);
+
+      let targetLedger = targetLedgerId ? ledgers.find(l => l.id === targetLedgerId) : null;
+
+      // If no default ledger or it doesn't exist, use most recent
+      if (!targetLedger) {
+        targetLedger = ledgers.sort((a, b) => b.lastAccess - a.lastAccess)[0];
+      }
+
+      if (targetLedger) {
+        setActiveId(targetLedger.id);
+
+        // Load ledger data from cloud
+        if (isCloudEnabled && user) {
+          const cloudData = await loadFromCloud(targetLedger.id);
+          if (cloudData) {
+            setState(cloudData);
+            updateLanguageFromOrigin(cloudData.originCountry);
+          }
+        }
+      }
+    } else if (isGuestMode && guestLedgers.length > 0) {
+      // Guest mode: load from memory
+      const mostRecent = guestLedgers.sort((a, b) => b.createdAt - a.createdAt)[0];
+      setActiveId(mostRecent.id);
+      setState(mostRecent.data);
     }
-  }, [ledgers, updateLanguageFromOrigin]);
+    // Note: Don't auto-show WelcomeWizard here - it will be shown when user clicks "New Ledger"
+  }, [ledgers, updateLanguageFromOrigin, isCloudEnabled, user, loadFromCloud, defaultLedgerId, isGuestMode, guestLedgers]);
 
   useEffect(() => {
-    if (!activeId) {
+    // Only run initialization once when auth is ready
+    if (!authLoading && !activeId) {
        const hasRun = document.body.dataset.initRun;
        if (!hasRun) {
          document.body.dataset.initRun = "true";
          initApp();
        }
     }
-  }, [activeId, initApp]);
+  }, [activeId, initApp, authLoading]);
 
   // --- Fetch current user role ---
   useEffect(() => {
@@ -249,42 +306,27 @@ const App: React.FC = () => {
     if (!activeId) return;
 
     const loadData = async () => {
-      // First try to load from local storage
-      let data = loadLedger(activeId);
-
-      // If not found locally and cloud is enabled, try to load from cloud
-      if (!data && isCloudEnabled && user) {
+      // Pure remote: load ledger data from cloud
+      if (isCloudEnabled && user) {
         console.log('Loading ledger from cloud:', activeId);
         const cloudData = await loadFromCloud(activeId);
         if (cloudData) {
-          data = cloudData;
-          // Save to local storage for future use
-          saveLedger(activeId, cloudData);
+          // Ensure required fields exist
+          if (!cloudData.families) {
+            cloudData.families = [
+              { id: 'f1', name: '家庭 1', count: 4 },
+              { id: 'f2', name: '家庭 2', count: 2 }
+            ];
+          }
+          if (!cloudData.baseCurrency) {
+            cloudData.baseCurrency = 'CNY';
+          }
+          if (!cloudData.originCountry) {
+            cloudData.originCountry = '中国';
+          }
+          setState(cloudData);
+          updateLanguageFromOrigin(cloudData.originCountry);
         }
-      }
-
-      if (data) {
-        // Migration logic here as well just in case
-        if (!data.families) {
-          data.families = [
-            { id: 'f1', name: '家庭 1', count: (data as any).family1Count || 4 },
-            { id: 'f2', name: '家庭 2', count: (data as any).family2Count || 2 }
-          ];
-          data.currencyCode = 'IDR';
-          data.destination = '印度尼西亚';
-        }
-        // Migration: add baseCurrency and originCountry if missing
-        if (!data.baseCurrency) {
-          data.baseCurrency = 'CNY';
-        }
-        if (!data.originCountry) {
-          data.originCountry = '中国';
-        }
-        setState(data);
-        updateLanguageFromOrigin(data.originCountry);
-        setLedgers(prev => prev.map(L =>
-             L.id === activeId ? { ...L, name: data!.ledgerName, lastAccess: Date.now() } : L
-        ));
       }
     };
 
@@ -299,38 +341,28 @@ const App: React.FC = () => {
         unsubscribe = subscribeToExpenses(activeId, (cloudExpenses) => {
           console.log('Received expense update from cloud:', cloudExpenses.length, 'expenses');
 
-          // Merge cloud expenses with local state
+          // Pure remote: sync expenses directly from cloud
           setState(prev => {
             // Filter out deleted expenses
             const activeCloudExpenses = cloudExpenses.filter(e => !e.deletedAt);
-            const localIds = new Set(prev.expenses.map(e => e.id));
-            const newExpenses = activeCloudExpenses.filter(e => !localIds.has(e.id));
 
-            if (newExpenses.length > 0) {
-              console.log('Merging', newExpenses.length, 'new expenses from cloud');
-              const mergedExpenses = [
-                ...prev.expenses,
-                ...newExpenses.map(e => ({
-                  id: e.id,
-                  date: e.date,
-                  description: e.description,
-                  amount: e.amount,
-                  category: e.category,
-                  payerId: e.payerId,
-                  sharedWithFamilyIds: e.sharedWithFamilyIds,
-                  createdBy: e.createdBy,
-                  createdByDisplayName: e.createdByDisplayName,
-                  createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
-                  version: e.version || 1,  // Include version for sync
-                  updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,  // Include updatedAt
-                }))
-              ];
-              // Save merged data locally
-              const newState = { ...prev, expenses: mergedExpenses };
-              saveLedger(activeId, newState);
-              return newState;
-            }
-            return prev;
+            // Pure remote: use cloud expenses as source of truth
+            const syncedExpenses = activeCloudExpenses.map(e => ({
+              id: e.id,
+              date: e.date,
+              description: e.description,
+              amount: e.amount,
+              category: e.category,
+              payerId: e.payerId,
+              sharedWithFamilyIds: e.sharedWithFamilyIds,
+              createdBy: e.createdBy,
+              createdByDisplayName: e.createdByDisplayName,
+              createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+              version: e.version || 1,
+              updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,
+            }));
+
+            return { ...prev, expenses: syncedExpenses };
           });
         });
       };
@@ -348,13 +380,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!activeId) return;
     const timer = setTimeout(() => {
-      saveLedger(activeId, state);
-      setLedgers(prev => prev.map(L =>
-        L.id === activeId && L.name !== state.ledgerName
-          ? { ...L, name: state.ledgerName }
-          : L
-      ));
-
+      // Removed: saveLedger - pure remote architecture
       // Auto-sync to cloud if enabled
       if (isCloudEnabled && user && activeId) {
         syncNow(activeId, state).catch(err => {
@@ -367,40 +393,30 @@ const App: React.FC = () => {
 
   // --- Handlers ---
   const handleCreateNewLedger = async () => {
-    const name = window.prompt("请输入新账本名称:", "新旅行账本");
-    if (!name) return;
-
-    const newState = { ...DEFAULT_STATE, ledgerName: name, lastUpdated: Date.now() };
-    const newId = createLedgerId();
-    saveLedger(newId, newState);
-
-    const newMeta: LedgerMeta = {
-      id: newId,
-      name: name,
-      lastAccess: Date.now(),
-      ownerId: user?.uid,
-      ownerDisplayName: user?.displayName || user?.email?.split('@')[0] || undefined,
-      isLocal: !user,
-      isCloudSynced: !!user,
-      status: 'active'
-    };
-    setLedgers(prev => [...prev, newMeta]);
-    setActiveId(newId);
-    setState(newState);
+    // Show WelcomeWizard for a more ceremonial ledger creation experience
+    setShowWelcomeWizard(true);
     setShowLedgerMenu(false);
-
-    const rate = await fetchExchangeRate('CNY', 'IDR');
-    if (rate) setState(prev => ({...prev, exchangeRate: rate}));
   };
 
   const handleSwitchLedger = (id: string) => {
-    setActiveId(id);
+    // Check if it's a guest ledger
+    const guestLedger = guestLedgers.find(gl => gl.id === id);
+    if (guestLedger && isGuestMode) {
+      setActiveId(id);
+      setState(guestLedger.data);
+    } else {
+      // Pure remote: just switch the active ID, data will load from cloud
+      setActiveId(id);
+    }
     setShowLedgerMenu(false);
   };
 
   // --- Login Prompt Handlers ---
   const handleGuestMode = () => {
     setShowLoginPrompt(false);
+    setIsGuestMode(true);
+    // Show welcome wizard for guest to create their first ledger
+    setShowWelcomeWizard(true);
   };
 
   const handleLoginFromPrompt = () => {
@@ -411,6 +427,12 @@ const App: React.FC = () => {
   const handleRegisterFromPrompt = () => {
     setShowLoginPrompt(false);
     setShowAuthModal(true);
+  };
+
+  // Handle guest sync complete
+  const handleGuestSyncComplete = () => {
+    setGuestLedgers([]);
+    setShowGuestSyncModal(false);
   };
 
   const handleRefreshRate = async () => {
@@ -560,6 +582,7 @@ const App: React.FC = () => {
             {showLedgerMenu && (
               <div className="absolute top-full left-0 mt-2 w-56 glass-card rounded-xl shadow-xl overflow-hidden text-gray-800 z-50">
                 <div className="max-h-60 overflow-y-auto">
+                  {/* Cloud ledgers for logged-in users */}
                   {ledgers.map(l => (
                     <button
                       key={l.id}
@@ -573,6 +596,19 @@ const App: React.FC = () => {
                       {activeId === l.id && <CheckCircle size={14} />}
                     </button>
                   ))}
+                  {/* Guest ledgers for guest mode */}
+                  {isGuestMode && guestLedgers.map(gl => (
+                    <button
+                      key={gl.id}
+                      onClick={() => handleSwitchLedger(gl.id)}
+                      className={`w-full text-left px-4 py-3 hover:bg-sky-50 flex items-center justify-between transition-colors ${activeId === gl.id ? 'bg-sky-50 text-sky-600' : ''}`}
+                    >
+                      <span className="truncate font-medium flex items-center gap-2">
+                        {gl.name}
+                      </span>
+                      {activeId === gl.id && <CheckCircle size={14} />}
+                    </button>
+                  ))}
                 </div>
                 <div className="border-t border-gray-100 p-2">
                   <button
@@ -581,25 +617,29 @@ const App: React.FC = () => {
                   >
                     <Plus size={16} /> {t('newLedger')}
                   </button>
-                  <button
-                    onClick={() => {
-                      setShowLedgerMenu(false);
-                      setInviteMode('join');
-                      setShowInviteModal(true);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-sky-600 hover:bg-sky-50 rounded-lg font-semibold transition-colors"
-                  >
-                    <Users size={16} /> {t('joinWithCode')}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowLedgerMenu(false);
-                      setShowLedgerPanel(true);
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg font-medium transition-colors"
-                  >
-                    <BookOpen size={16} /> {t('ledgerManage')}
-                  </button>
+                  {!isGuestMode && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setShowLedgerMenu(false);
+                          setInviteMode('join');
+                          setShowInviteModal(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-sky-600 hover:bg-sky-50 rounded-lg font-semibold transition-colors"
+                      >
+                        <Users size={16} /> {t('joinWithCode')}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowLedgerMenu(false);
+                          setShowLedgerPanel(true);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg font-medium transition-colors"
+                      >
+                        <BookOpen size={16} /> {t('ledgerManage')}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -760,10 +800,7 @@ const App: React.FC = () => {
               exchangeRate={state.exchangeRate}
               baseCurrency={state.baseCurrency}
               onDelete={async (id) => {
-                // Update local state immediately
-                setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}));
-
-                // Soft delete from cloud if enabled
+                // Soft delete from cloud - subscription will update the UI
                 if (user && activeId && isCloudEnabled) {
                   try {
                     const { softDeleteExpense, getExpenses } = await import('./services/firestoreService');
@@ -773,6 +810,7 @@ const App: React.FC = () => {
                     if (cloudExpense) {
                       await softDeleteExpense(activeId, id, cloudExpense.version || 1);
                       console.log('Expense soft deleted from cloud:', id);
+                      // The subscription will automatically update the UI
                     } else {
                       console.log('Expense not found in cloud, skipping soft delete');
                     }
@@ -795,7 +833,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Floating Add Button - Travel Style - Hidden for archived ledgers or users without edit permission */}
-      {!isArchived && checkPermission(currentUserRole || 'member', 'edit_expenses') && (
+      {!isArchived && (isGuestMode || checkPermission(currentUserRole || 'member', 'edit_expenses')) && (
         <button
           onClick={() => setShowAddModal(true)}
           className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-orange-400 to-pink-500 text-white rounded-2xl shadow-2xl shadow-orange-500/30 flex items-center justify-center hover:scale-110 hover:rotate-3 transition-all z-40 group"
@@ -821,8 +859,8 @@ const App: React.FC = () => {
             const newExpense = {
               ...expense,
               id: `e${Date.now()}`,
-              createdBy: user?.uid,
-              createdByDisplayName: user?.displayName || user?.email?.split('@')[0] || 'User',
+              createdBy: user?.uid || 'guest',
+              createdByDisplayName: user?.displayName || user?.email?.split('@')[0] || 'Guest',
               createdAt: Date.now()
             };
 
@@ -831,6 +869,22 @@ const App: React.FC = () => {
               ...prev,
               expenses: [...prev.expenses, newExpense]
             }));
+
+            // For guest mode: update guest ledger in memory
+            if (isGuestMode && activeId) {
+              setGuestLedgers(prev => prev.map(gl => {
+                if (gl.id === activeId) {
+                  return {
+                    ...gl,
+                    data: {
+                      ...gl.data,
+                      expenses: [...gl.data.expenses, newExpense]
+                    }
+                  };
+                }
+                return gl;
+              }));
+            }
 
             // Upload to cloud immediately if logged in and cloud is enabled
             if (user && activeId && isCloudEnabled) {
@@ -899,16 +953,7 @@ const App: React.FC = () => {
           inviteCode={inviteCodeFromUrl || undefined}
           forceJoinMode={inviteMode === 'join'}
           onJoinSuccess={async (ledgerId, ledgerName) => {
-            // Add the joined ledger to the list
-            const newMeta = { id: ledgerId, name: ledgerName, lastAccess: Date.now() };
-            setLedgers(prev => {
-              // Check if already exists
-              const exists = prev.find(l => l.id === ledgerId);
-              if (exists) {
-                return prev.map(l => l.id === ledgerId ? { ...l, name: ledgerName, lastAccess: Date.now() } : l);
-              }
-              return [...prev, newMeta];
-            });
+            // Pure remote: just switch to the joined ledger
             setActiveId(ledgerId);
 
             // Load ledger data from cloud
@@ -916,11 +961,6 @@ const App: React.FC = () => {
               const cloudData = await loadFromCloud(ledgerId);
               if (cloudData) {
                 setState(cloudData);
-                saveLedger(ledgerId, cloudData);
-                // Update ledger name from cloud data
-                setLedgers(prev => prev.map(l =>
-                  l.id === ledgerId ? { ...l, name: cloudData.ledgerName } : l
-                ));
                 updateLanguageFromOrigin(cloudData.originCountry);
               }
             }
@@ -973,20 +1013,28 @@ const App: React.FC = () => {
           }}
           onSetDefault={(id) => {
             setDefaultLedgerId(id);
+            // Note: default ledger ID is stored in localStorage for UX, but ledger data is remote
             localStorage.setItem('default_ledger_id', id);
           }}
-          onDelete={(id) => {
+          onDelete={async (id) => {
             if (id === activeId) return;
-            deleteLedger(id);
-            setLedgers(prev => prev.filter(l => l.id !== id));
+            // Delete from cloud - the subscription will update the UI
+            try {
+              const { deleteLedger: deleteCloudLedger } = await import('./services/firestoreService');
+              await deleteCloudLedger(id);
+            } catch (err) {
+              console.error('Failed to delete ledger from cloud:', err);
+            }
           }}
-          onRefresh={() => {}}
+          onRefresh={() => {
+            // Refresh is handled by cloud subscription
+          }}
           onArchive={async (id) => {
             if (!user) return;
             try {
               const { updateLedger: updateCloudLedger } = await import('./services/firestoreService');
               await updateCloudLedger(id, { status: 'archived', archivedBy: user.uid });
-              setLedgers(prev => prev.map(l => l.id === id ? { ...l, status: 'archived' } : l));
+              // UI will update via cloud subscription
             } catch (err) {
               console.error('Failed to archive ledger:', err);
             }
@@ -996,7 +1044,7 @@ const App: React.FC = () => {
             try {
               const { updateLedger: updateCloudLedger } = await import('./services/firestoreService');
               await updateCloudLedger(id, { status: 'active', archivedBy: null });
-              setLedgers(prev => prev.map(l => l.id === id ? { ...l, status: 'active' } : l));
+              // UI will update via cloud subscription
             } catch (err) {
               console.error('Failed to unarchive ledger:', err);
             }
@@ -1016,7 +1064,7 @@ const App: React.FC = () => {
       {showWelcomeWizard && (
         <WelcomeWizard
           isOpen={showWelcomeWizard}
-          onComplete={(data) => {
+          onComplete={async (data) => {
             const id = createLedgerId();
             const newState: AppState = {
               ledgerName: data.ledgerName,
@@ -1029,21 +1077,53 @@ const App: React.FC = () => {
               originCountry: data.originCountry,
               lastUpdated: Date.now()
             };
-            saveLedger(id, newState);
 
-            // Create ledger metadata with owner info
-            const newMeta: LedgerMeta = {
-              id,
-              name: newState.ledgerName,
-              lastAccess: Date.now(),
-              ownerId: user?.uid,
-              ownerDisplayName: user?.displayName || user?.email?.split('@')[0] || undefined,
-              isLocal: !user,
-              isCloudSynced: !!user,
-              status: 'active'
-            };
+            // Handle guest mode vs logged-in user
+            if (isGuestMode) {
+              // Guest mode: store in memory only
+              setGuestLedgers(prev => [...prev, {
+                id,
+                name: newState.ledgerName,
+                data: newState,
+                createdAt: Date.now(),
+              }]);
+              setActiveId(id);
+              setState(newState);
+            } else if (isCloudEnabled && user) {
+              // Logged-in user: create ledger in cloud
+              try {
+                const { createLedger, addMember, updateUserDefaultLedger } = await import('./services/firestoreService');
+                await createLedger({
+                  id,
+                  name: newState.ledgerName,
+                  ownerId: user.uid,
+                  destination: newState.destination,
+                  currencyCode: newState.currencyCode,
+                  baseCurrency: newState.baseCurrency,
+                  exchangeRate: newState.exchangeRate,
+                  families: newState.families,
+                  originCountry: newState.originCountry,
+                } as any);
 
-            setLedgers(prev => [...prev, newMeta]);
+                // Add user as member
+                const memberId = `${id}_${user.uid}`;
+                await addMember(id, {
+                  id: memberId,
+                  ledgerId: id,
+                  userId: user.uid,
+                  role: 'owner',
+                  displayName: user.displayName || user.email?.split('@')[0] || 'User',
+                } as any);
+
+                // Save default ledger to cloud if set
+                if (data.setAsDefault) {
+                  await updateUserDefaultLedger(user.uid, id);
+                }
+              } catch (err) {
+                console.error('Failed to create cloud ledger:', err);
+              }
+            }
+
             setActiveId(id);
             setState(newState);
             if (data.setAsDefault) {
@@ -1055,6 +1135,14 @@ const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* Guest Ledger Sync Modal */}
+      <GuestLedgerSyncModal
+        isOpen={showGuestSyncModal}
+        onClose={() => setShowGuestSyncModal(false)}
+        guestLedgers={guestLedgers}
+        onSyncComplete={handleGuestSyncComplete}
+      />
 
       {/* Hidden PDF Export Container */}
       <div id="pdf-export-container" className="fixed top-0 left-[200vw] w-[800px] bg-white p-8 z-[-1]">
