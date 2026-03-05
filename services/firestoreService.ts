@@ -169,7 +169,91 @@ export async function getUserDefaultLedger(uid: string): Promise<string | null> 
   }
 }
 
+/**
+ * Subscribe to user profile changes (for real-time default ledger sync)
+ * @param uid - User ID
+ * @param callback - Callback function called when user profile changes
+ * @returns Unsubscribe function
+ */
+export function subscribeToUserProfile(
+  uid: string,
+  callback: (data: { defaultLedgerId: string | null }) => void
+): () => void {
+  const userRef = doc(db, COLLECTIONS.USERS, uid);
+
+  const unsubscribe = onSnapshot(
+    userRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        callback({
+          defaultLedgerId: data.defaultLedgerId || null,
+        });
+      } else {
+        callback({ defaultLedgerId: null });
+      }
+    },
+    (error) => {
+      console.error('Error subscribing to user profile:', error);
+    }
+  );
+
+  return unsubscribe;
+}
+
 // ==================== LEDGER OPERATIONS ====================
+
+/**
+ * Check if a ledger name already exists for a user
+ * @param userId - The user ID to check for
+ * @param name - The ledger name to check
+ * @param excludeLedgerId - Optional ledger ID to exclude (for rename scenario)
+ * @returns true if name already exists, false otherwise
+ */
+export async function checkLedgerNameExists(
+  userId: string,
+  name: string,
+  excludeLedgerId?: string
+): Promise<boolean> {
+  try {
+    // Get all ledgers the user is a member of
+    const membersQuery = query(
+      collection(db, COLLECTIONS.MEMBERS),
+      where('userId', '==', userId)
+    );
+    const membersSnapshot = await getDocs(membersQuery);
+
+    if (membersSnapshot.empty) {
+      return false;
+    }
+
+    // Get all ledger IDs the user belongs to
+    const ledgerIds = membersSnapshot.docs.map(doc => doc.data().ledgerId);
+
+    // Check each ledger for name conflict
+    for (const ledgerId of ledgerIds) {
+      // Skip the ledger being renamed
+      if (excludeLedgerId && ledgerId === excludeLedgerId) {
+        continue;
+      }
+
+      const ledgerRef = doc(db, COLLECTIONS.LEDGERS, ledgerId);
+      const ledgerSnap = await getDoc(ledgerRef);
+
+      if (ledgerSnap.exists()) {
+        const ledgerData = ledgerSnap.data();
+        if (ledgerData.name === name) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking ledger name:', error);
+    throw new Error(`Failed to check ledger name: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}
 
 /**
  * Create a new ledger

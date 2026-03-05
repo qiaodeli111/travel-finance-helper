@@ -157,6 +157,9 @@ const App: React.FC = () => {
     } catch { return null; }
   });
 
+  // Track if we're currently loading data from cloud to prevent race condition
+  const isLoadingFromCloudRef = useRef(false);
+
   // --- Handle Invite Link from URL ---
   useEffect(() => {
     const path = window.location.pathname;
@@ -272,15 +275,12 @@ const App: React.FC = () => {
   }, [ledgers, updateLanguageFromOrigin, isCloudEnabled, user, loadFromCloud, defaultLedgerId, isGuestMode, guestLedgers]);
 
   useEffect(() => {
-    // Only run initialization once when auth is ready
-    if (!authLoading && !activeId) {
-       const hasRun = document.body.dataset.initRun;
-       if (!hasRun) {
-         document.body.dataset.initRun = "true";
-         initApp();
-       }
+    // Run initialization when auth is ready and ledgers are available
+    // Note: We don't use initRun marker because ledgers might load asynchronously
+    if (!authLoading && user && ledgers.length > 0 && !activeId) {
+      initApp();
     }
-  }, [activeId, initApp, authLoading]);
+  }, [authLoading, user, ledgers.length, activeId, initApp]);
 
   // --- Fetch current user role ---
   useEffect(() => {
@@ -301,6 +301,30 @@ const App: React.FC = () => {
     fetchRole();
   }, [user, activeId, isCloudEnabled, ledgers]);
 
+  // --- Subscribe to user profile for default ledger sync ---
+  useEffect(() => {
+    if (!user || !isCloudEnabled) return;
+
+    let unsubscribe: (() => void) | null = null;
+
+    const subscribeToUserSettings = async () => {
+      const { subscribeToUserProfile } = await import('./services/firestoreService');
+      unsubscribe = subscribeToUserProfile(user.uid, (data) => {
+        if (data.defaultLedgerId && data.defaultLedgerId !== defaultLedgerId) {
+          console.log('Default ledger updated from another device:', data.defaultLedgerId);
+          setDefaultLedgerId(data.defaultLedgerId);
+          localStorage.setItem('default_ledger_id', data.defaultLedgerId);
+        }
+      });
+    };
+
+    subscribeToUserSettings();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [user, isCloudEnabled, defaultLedgerId]);
+
   // --- Load Data when Active ID Changes ---
   useEffect(() => {
     if (!activeId) return;
@@ -308,6 +332,8 @@ const App: React.FC = () => {
     const loadData = async () => {
       // Pure remote: load ledger data from cloud
       if (isCloudEnabled && user) {
+        // Set loading flag to prevent race condition with syncNow
+        isLoadingFromCloudRef.current = true;
         console.log('Loading ledger from cloud:', activeId);
         const cloudData = await loadFromCloud(activeId);
         if (cloudData) {
@@ -327,6 +353,8 @@ const App: React.FC = () => {
           setState(cloudData);
           updateLanguageFromOrigin(cloudData.originCountry);
         }
+        // Clear loading flag after data is loaded
+        isLoadingFromCloudRef.current = false;
       }
     };
 
@@ -380,7 +408,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!activeId) return;
     const timer = setTimeout(() => {
-      // Removed: saveLedger - pure remote architecture
+      // Don't sync while loading data from cloud (prevents race condition)
+      if (isLoadingFromCloudRef.current) {
+        return;
+      }
       // Auto-sync to cloud if enabled
       if (isCloudEnabled && user && activeId) {
         syncNow(activeId, state).catch(err => {
@@ -449,6 +480,22 @@ const App: React.FC = () => {
   };
 
   const handleSaveSettings = async (ledgerName: string, families: Family[], destination: string, currency: string, originCountry: string, baseCurrency: string) => {
+    // Check for duplicate name if name changed and user is logged in
+    if (ledgerName !== state.ledgerName && user && isCloudEnabled) {
+      try {
+        const { checkLedgerNameExists } = await import('./services/firestoreService');
+        const nameExists = await checkLedgerNameExists(user.uid, ledgerName, activeId);
+        if (nameExists) {
+          alert(language === 'zh'
+            ? `账本名称"${ledgerName}"已存在，请使用其他名称`
+            : `Ledger name "${ledgerName}" already exists. Please use a different name.`);
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to check ledger name:', err);
+      }
+    }
+
     let newRate = state.exchangeRate;
 
     // Fetch new rate if currency or base currency changed
@@ -1011,10 +1058,18 @@ const App: React.FC = () => {
             setActiveId(id);
             setShowLedgerPanel(false);
           }}
-          onSetDefault={(id) => {
+          onSetDefault={async (id) => {
             setDefaultLedgerId(id);
-            // Note: default ledger ID is stored in localStorage for UX, but ledger data is remote
             localStorage.setItem('default_ledger_id', id);
+            // Sync to cloud for cross-device sync
+            if (user) {
+              try {
+                const { updateUserDefaultLedger } = await import('./services/firestoreService');
+                await updateUserDefaultLedger(user.uid, id);
+              } catch (err) {
+                console.error('Failed to sync default ledger to cloud:', err);
+              }
+            }
           }}
           onDelete={async (id) => {
             if (id === activeId) return;
@@ -1092,7 +1147,17 @@ const App: React.FC = () => {
             } else if (isCloudEnabled && user) {
               // Logged-in user: create ledger in cloud
               try {
-                const { createLedger, addMember, updateUserDefaultLedger } = await import('./services/firestoreService');
+                const { createLedger, addMember, updateUserDefaultLedger, checkLedgerNameExists } = await import('./services/firestoreService');
+
+                // Check for duplicate name
+                const nameExists = await checkLedgerNameExists(user.uid, newState.ledgerName);
+                if (nameExists) {
+                  alert(language === 'zh'
+                    ? `账本名称"${newState.ledgerName}"已存在，请使用其他名称`
+                    : `Ledger name "${newState.ledgerName}" already exists. Please use a different name.`);
+                  return;
+                }
+
                 await createLedger({
                   id,
                   name: newState.ledgerName,

@@ -15,6 +15,7 @@ export interface UserProfile {
   photoURL: string | null;
   phoneNumber: string | null;
   isAnonymous: boolean;
+  defaultLedgerId?: string | null;  // User's default ledger for cross-device sync
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

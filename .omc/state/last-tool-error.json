@@ -1,0 +1,7 @@
+{
+  "tool_name": "TeamCreate",
+  "tool_input_preview": "{\"team_name\":\"codebase-analysis\",\"description\":\"分析travel-finance-helper代码库，生成详细记忆文档\"}",
+  "error": "Already leading team \"code-analysis\". A leader can only manage one team at a time. Use TeamDelete to end the current team before creating a new one.",
+  "timestamp": "2026-03-05T15:53:18.009Z",
+  "retry_count": 1
+}
