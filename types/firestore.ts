@@ -35,6 +35,10 @@ export interface CloudLedger {
   archivedBy?: string | null; // Who archived it
   createdAt: Timestamp;
   updatedAt: Timestamp;
+
+  // Sync control fields
+  version?: number;           // 账本元数据版本
+  lastSyncedAt?: Timestamp | null; // 最后同步时间
 }
 
 // Ledger member document
@@ -74,6 +78,10 @@ export interface CloudExpense {
   sharedWithFamilyIds: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
+
+  // Version control fields
+  version: number;           // 版本号，每次修改 +1
+  deletedAt?: Timestamp | null;  // 软删除时间戳
 }
 
 // Collection paths

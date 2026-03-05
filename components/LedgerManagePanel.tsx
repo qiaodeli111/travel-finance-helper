@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, BookOpen, MapPin, Users, Globe, Cloud, CloudOff, Star, StarOff, Trash2, Loader2, Archive, ArchiveRestore, User, AlertTriangle } from 'lucide-react';
+import { X, BookOpen, MapPin, Users, Globe, Cloud, CloudOff, Star, StarOff, Trash2, Loader2, Archive, ArchiveRestore, User, AlertTriangle, Download, RefreshCw } from 'lucide-react';
 import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useCloudSync } from '../src/contexts/CloudSyncContext';
-import { loadLedger, deleteLedger } from '../services/storageService';
+import { loadLedger, deleteLedger, saveLedger } from '../services/storageService';
 import { updateLedger, deleteLedger as deleteCloudLedger } from '../services/firestoreService';
 import { AppState, Family } from '../types';
 
@@ -18,6 +18,7 @@ interface LedgerMeta {
   isLocal?: boolean;
   status?: 'active' | 'archived';
   members?: string[];
+  isFromCloud?: boolean;  // New: indicates this ledger is from cloud but not yet downloaded
 }
 
 interface LedgerManagePanelProps {
@@ -31,6 +32,7 @@ interface LedgerManagePanelProps {
   onRefresh: () => void;
   onArchive?: (id: string) => void;
   onUnarchive?: (id: string) => void;
+  onDownloadCloudLedger?: (ledgerId: string) => Promise<void>;  // New: callback for downloading cloud ledger
 }
 
 export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
@@ -43,17 +45,19 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
   onDelete,
   onRefresh,
   onArchive,
-  onUnarchive
+  onUnarchive,
+  onDownloadCloudLedger
 }) => {
   const { t, language } = useTranslation();
   const { user } = useAuth();
-  const { isCloudEnabled } = useCloudSync();
+  const { isCloudEnabled, cloudLedgers, isLoadingLedgers, refreshCloudLedgers, loadFromCloud } = useCloudSync();
   const [selectedLedger, setSelectedLedger] = useState<LedgerMeta | null>(null);
   const [ledgerData, setLedgerData] = useState<AppState | null>(null);
   const [loading, setLoading] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (selectedLedger) {
@@ -61,6 +65,64 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
       setLedgerData(data);
     }
   }, [selectedLedger]);
+
+  // Merge local ledgers with cloud ledgers
+  const allLedgers = React.useMemo(() => {
+    const localIds = new Set(ledgers.map(l => l.id));
+    const cloudOnlyLedgers: LedgerMeta[] = cloudLedgers
+      .filter(cl => !localIds.has(cl.id))
+      .map(cl => {
+        // Handle updatedAt - it could be a Firestore Timestamp object or a number
+        let lastAccess = 0;
+        if (cl.updatedAt) {
+          if (typeof cl.updatedAt === 'object' && 'seconds' in cl.updatedAt) {
+            lastAccess = (cl.updatedAt as { seconds: number; nanoseconds: number }).seconds * 1000;
+          } else if (typeof cl.updatedAt === 'number') {
+            lastAccess = cl.updatedAt;
+          }
+        }
+
+        return {
+          id: cl.id,
+          name: cl.name,
+          lastAccess,
+          isCloudSynced: true,
+          ownerId: cl.ownerId,
+          status: cl.status as 'active' | 'archived' | undefined,
+          isFromCloud: true,
+        };
+      });
+
+    return [...ledgers, ...cloudOnlyLedgers];
+  }, [ledgers, cloudLedgers]);
+
+  // Handle download cloud ledger
+  const handleDownloadCloudLedger = async (ledgerId: string) => {
+    if (!onDownloadCloudLedger) {
+      // Default implementation
+      setDownloading(true);
+      try {
+        const cloudData = await loadFromCloud(ledgerId);
+        if (cloudData) {
+          saveLedger(ledgerId, cloudData);
+          // Refresh the parent component
+          onRefresh();
+          // Select the newly downloaded ledger
+          const newLedger = allLedgers.find(l => l.id === ledgerId);
+          if (newLedger) {
+            setSelectedLedger({ ...newLedger, isFromCloud: false });
+            setLedgerData(cloudData);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to download cloud ledger:', err);
+      } finally {
+        setDownloading(false);
+      }
+    } else {
+      await onDownloadCloudLedger(ledgerId);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -119,19 +181,37 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
               <BookOpen size={20} />
             </div>
             <div>
-              <h2 className="font-bold text-lg">{t('ledgerName')} {t('members')}</h2>
-              <p className="text-sky-100 text-xs">{ledgers.length} {t('persons')}</p>
+              <h2 className="font-bold text-lg">{t('ledgerManage')}</h2>
+              <p className="text-sky-100 text-xs">{allLedgers.length} {t('ledgersCount', 'ledgers')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
-            <X size={24} />
-          </button>
+          <div className="flex items-center gap-2">
+            {isCloudEnabled && (
+              <button
+                onClick={refreshCloudLedgers}
+                disabled={isLoadingLedgers}
+                className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                title={t('refreshCloudLedgers', 'Refresh cloud ledgers')}
+              >
+                <RefreshCw size={18} className={isLoadingLedgers ? 'animate-spin' : ''} />
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-xl transition-colors">
+              <X size={24} />
+            </button>
+          </div>
         </div>
 
         <div className="flex h-[60vh]">
           {/* Ledger List */}
           <div className="w-1/2 border-r border-gray-100 overflow-y-auto">
-            {ledgers.map((ledger) => (
+            {isLoadingLedgers && (
+              <div className="p-4 text-center text-gray-500">
+                <Loader2 size={24} className="animate-spin mx-auto mb-2" />
+                <p className="text-sm">{t('loadingCloudLedgers', 'Loading cloud ledgers...')}</p>
+              </div>
+            )}
+            {allLedgers.map((ledger) => (
               <div
                 key={ledger.id}
                 onClick={() => setSelectedLedger(ledger)}
@@ -145,196 +225,252 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
                       <Star size={16} className="text-yellow-500 fill-yellow-500" />
                     )}
                     <span className="font-medium text-gray-800">{ledger.name}</span>
+                    {ledger.isFromCloud && (
+                      <span className="px-1.5 py-0.5 bg-sky-100 text-sky-600 text-xs rounded">
+                        {t('cloudOnly', 'Cloud')}
+                      </span>
+                    )}
                   </div>
-                  {ledger.isCloudSynced ? (
+                  {ledger.isCloudSynced || ledger.isFromCloud ? (
                     <Cloud size={16} className="text-sky-500" />
                   ) : (
                     <CloudOff size={16} className="text-gray-300" />
                   )}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {t('lastSynced')}: {formatDate(ledger.lastAccess)}
+                  {ledger.isFromCloud
+                    ? t('availableInCloud', 'Available in cloud')
+                    : `${t('lastSynced')}: ${formatDate(ledger.lastAccess)}`
+                  }
                 </p>
               </div>
             ))}
+            {allLedgers.length === 0 && !isLoadingLedgers && (
+              <div className="p-8 text-center text-gray-400">
+                <BookOpen size={48} className="mx-auto mb-3 opacity-50" />
+                <p>{t('noLedgers', 'No ledgers yet')}</p>
+              </div>
+            )}
           </div>
 
           {/* Ledger Details */}
           <div className="w-1/2 p-4 overflow-y-auto">
-            {selectedLedger && ledgerData ? (
+            {selectedLedger ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
-                  {selectedLedger.status === 'archived' && (
-                    <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs font-medium rounded-lg flex items-center gap-1">
-                      <Archive size={12} />
-                      {t('archived', 'Archived')}
-                    </span>
-                  )}
-                </div>
+                {/* Cloud-only ledger (not downloaded yet) */}
+                {selectedLedger.isFromCloud ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
+                      {selectedLedger.status === 'archived' && (
+                        <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs font-medium rounded-lg flex items-center gap-1">
+                          <Archive size={12} />
+                          {t('archived', 'Archived')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 p-4 bg-sky-50 rounded-xl">
+                      <Cloud size={24} className="text-sky-500" />
+                      <div>
+                        <p className="text-sky-700 font-medium">{t('cloudLedger', 'Cloud Ledger')}</p>
+                        <p className="text-sky-500 text-xs">{t('notDownloaded', 'Not downloaded to this device')}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleDownloadCloudLedger(selectedLedger.id)}
+                      disabled={downloading}
+                      className="w-full py-3 bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-xl font-medium hover:from-sky-600 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      {downloading ? (
+                        <Loader2 size={18} className="animate-spin" />
+                      ) : (
+                        <Download size={18} />
+                      )}
+                      {downloading ? t('downloading', 'Downloading...') : t('downloadToLocall', 'Download to Device')}
+                    </button>
+                  </>
+                ) : ledgerData ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-lg text-gray-800">{selectedLedger.name}</h3>
+                      {selectedLedger.status === 'archived' && (
+                        <span className="px-2 py-1 bg-orange-100 text-orange-600 text-xs font-medium rounded-lg flex items-center gap-1">
+                          <Archive size={12} />
+                          {t('archived', 'Archived')}
+                        </span>
+                      )}
+                    </div>
 
                 {/* Owner Info */}
-                {selectedLedger.ownerDisplayName && (
-                  <div className="flex items-center gap-2 p-3 bg-sky-50 rounded-xl">
-                    <User size={16} className="text-sky-500" />
-                    <span className="text-sm text-gray-600">
-                      {t('createdBy')}: <span className="font-medium text-gray-800">{selectedLedger.ownerDisplayName}</span>
-                    </span>
-                  </div>
-                )}
+                    {selectedLedger.ownerDisplayName && (
+                      <div className="flex items-center gap-2 p-3 bg-sky-50 rounded-xl">
+                        <User size={16} className="text-sky-500" />
+                        <span className="text-sm text-gray-600">
+                          {t('createdBy')}: <span className="font-medium text-gray-800">{selectedLedger.ownerDisplayName}</span>
+                        </span>
+                      </div>
+                    )}
 
-                {/* Local/Cloud Status */}
-                <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
-                  {selectedLedger.isLocal ? (
-                    <>
-                      <CloudOff size={20} className="text-gray-400" />
-                      <span className="text-gray-500 font-medium">{t('localLedger')}</span>
-                    </>
-                  ) : selectedLedger.isCloudSynced ? (
-                    <>
-                      <Cloud size={20} className="text-sky-500" />
-                      <span className="text-sky-600 font-medium">{t('onlineLedger')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <CloudOff size={20} className="text-gray-400" />
-                      <span className="text-gray-500">{t('cloudSyncDisabled')}</span>
-                    </>
-                  )}
-                </div>
-
-                {/* Details */}
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <MapPin size={16} className="text-sky-500" />
-                    <span className="text-gray-500">{t('destination')}:</span>
-                    <span className="text-gray-800">{getCountryDisplayText(ledgerData.destination, language)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Globe size={16} className="text-sky-500" />
-                    <span className="text-gray-500">{t('baseCurrency')}:</span>
-                    <span className="text-gray-800">{ledgerData.baseCurrency}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users size={16} className="text-sky-500" />
-                    <span className="text-gray-500">{t('families')}:</span>
-                    <span className="text-gray-800">{ledgerData.families?.length || 0} {t('persons')}</span>
-                  </div>
-                </div>
-
-                {/* Families List */}
-                {ledgerData.families && ledgerData.families.length > 0 && (
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <p className="text-xs font-bold text-gray-500 uppercase mb-2">{t('families')}</p>
-                    <div className="space-y-1">
-                      {ledgerData.families.map((f: Family) => (
-                        <div key={f.id} className="flex items-center justify-between text-sm">
-                          <span className="text-gray-700">{f.name}</span>
-                          <span className="text-gray-400">{f.count} {t('persons')}</span>
-                        </div>
-                      ))}
+                    {/* Local/Cloud Status */}
+                    <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl">
+                      {selectedLedger.isLocal ? (
+                        <>
+                          <CloudOff size={20} className="text-gray-400" />
+                          <span className="text-gray-500 font-medium">{t('localLedger')}</span>
+                        </>
+                      ) : selectedLedger.isCloudSynced ? (
+                        <>
+                          <Cloud size={20} className="text-sky-500" />
+                          <span className="text-sky-600 font-medium">{t('onlineLedger')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <CloudOff size={20} className="text-gray-400" />
+                          <span className="text-gray-500">{t('cloudSyncDisabled')}</span>
+                        </>
+                      )}
                     </div>
-                  </div>
-                )}
 
-                {/* Actions */}
-                <div className="space-y-2 pt-4">
-                  {selectedLedger.status !== 'archived' && (
-                    <button
-                      onClick={() => onSelect(selectedLedger.id)}
-                      className="w-full py-2 bg-sky-500 text-white rounded-xl font-medium hover:bg-sky-600 transition-colors"
-                    >
-                      {t('open', 'Open')}
-                    </button>
-                  )}
+                    {/* Details */}
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <MapPin size={16} className="text-sky-500" />
+                        <span className="text-gray-500">{t('destination')}:</span>
+                        <span className="text-gray-800">{getCountryDisplayText(ledgerData.destination, language)}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Globe size={16} className="text-sky-500" />
+                        <span className="text-gray-500">{t('baseCurrency')}:</span>
+                        <span className="text-gray-800">{ledgerData.baseCurrency}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Users size={16} className="text-sky-500" />
+                        <span className="text-gray-500">{t('families')}:</span>
+                        <span className="text-gray-800">{ledgerData.families?.length || 0} {t('persons')}</span>
+                      </div>
+                    </div>
 
-                  <button
-                    onClick={() => onSetDefault(selectedLedger.id)}
-                    className="w-full py-2 bg-yellow-50 text-yellow-600 rounded-xl font-medium hover:bg-yellow-100 transition-colors flex items-center justify-center gap-2"
-                  >
-                    {selectedLedger.isDefault ? <StarOff size={18} /> : <Star size={18} />}
-                    {selectedLedger.isDefault ? t('removeDefault', 'Remove Default') : t('setDefault', 'Set as Default')}
-                  </button>
-
-                  {/* Archive/Unarchive - Only for owners */}
-                  {isOwner(selectedLedger) && onArchive && (
-                    selectedLedger.status === 'archived' ? (
-                      <button
-                        onClick={handleUnarchive}
-                        disabled={archiving}
-                        className="w-full py-2 bg-green-50 text-green-600 rounded-xl font-medium hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
-                      >
-                        {archiving ? <Loader2 size={18} className="animate-spin" /> : <ArchiveRestore size={18} />}
-                        {t('unarchive', 'Unarchive')}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleArchive}
-                        disabled={archiving}
-                        className="w-full py-2 bg-orange-50 text-orange-600 rounded-xl font-medium hover:bg-orange-100 transition-colors flex items-center justify-center gap-2"
-                      >
-                        {archiving ? <Loader2 size={18} className="animate-spin" /> : <Archive size={18} />}
-                        {t('archive', 'Archive')}
-                      </button>
-                    )
-                  )}
-
-                  {/* Delete - Only for owners and not active ledger */}
-                  {isOwner(selectedLedger) && activeId !== selectedLedger.id && (
-                    showDeleteConfirm ? (
-                      <div className="space-y-2 p-3 bg-red-50 rounded-xl">
-                        <div className="flex items-center gap-2 text-red-600 text-sm">
-                          <AlertTriangle size={16} />
-                          <span>{t('deleteConfirmMessage', 'Type ledger name to confirm:')}</span>
-                        </div>
-                        <input
-                          type="text"
-                          value={deleteConfirmName}
-                          onChange={(e) => setDeleteConfirmName(e.target.value)}
-                          placeholder={selectedLedger.name}
-                          className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setShowDeleteConfirm(false);
-                              setDeleteConfirmName('');
-                            }}
-                            className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium"
-                          >
-                            {t('cancel')}
-                          </button>
-                          <button
-                            onClick={handleDelete}
-                            disabled={deleteConfirmName !== selectedLedger.name}
-                            className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
-                          >
-                            {t('delete', 'Delete')}
-                          </button>
+                    {/* Families List */}
+                    {ledgerData.families && ledgerData.families.length > 0 && (
+                      <div className="p-3 bg-gray-50 rounded-xl">
+                        <p className="text-xs font-bold text-gray-500 uppercase mb-2">{t('families')}</p>
+                        <div className="space-y-1">
+                          {ledgerData.families.map((f: Family) => (
+                            <div key={f.id} className="flex items-center justify-between text-sm">
+                              <span className="text-gray-700">{f.name}</span>
+                              <span className="text-gray-400">{f.count} {t('persons')}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                    ) : (
-                      <button
-                        onClick={() => setShowDeleteConfirm(true)}
-                        className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Trash2 size={18} />
-                        {t('deleteLedger', 'Delete Ledger')}
-                      </button>
-                    )
-                  )}
+                    )}
 
-                  {/* Leave ledger for non-owners */}
-                  {!isOwner(selectedLedger) && activeId !== selectedLedger.id && (
-                    <button
-                      onClick={() => onDelete(selectedLedger.id)}
-                      className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Trash2 size={18} />
-                      {t('leaveLedger', 'Leave Ledger')}
-                    </button>
-                  )}
-                </div>
+                    {/* Actions */}
+                    <div className="space-y-2 pt-4">
+                      {selectedLedger.status !== 'archived' && (
+                        <button
+                          onClick={() => onSelect(selectedLedger.id)}
+                          className="w-full py-2 bg-sky-500 text-white rounded-xl font-medium hover:bg-sky-600 transition-colors"
+                        >
+                          {t('open', 'Open')}
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => onSetDefault(selectedLedger.id)}
+                        className="w-full py-2 bg-yellow-50 text-yellow-600 rounded-xl font-medium hover:bg-yellow-100 transition-colors flex items-center justify-center gap-2"
+                      >
+                        {selectedLedger.isDefault ? <StarOff size={18} /> : <Star size={18} />}
+                        {selectedLedger.isDefault ? t('removeDefault', 'Remove Default') : t('setDefault', 'Set as Default')}
+                      </button>
+
+                      {/* Archive/Unarchive - Only for owners */}
+                      {isOwner(selectedLedger) && onArchive && (
+                        selectedLedger.status === 'archived' ? (
+                          <button
+                            onClick={handleUnarchive}
+                            disabled={archiving}
+                            className="w-full py-2 bg-green-50 text-green-600 rounded-xl font-medium hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            {archiving ? <Loader2 size={18} className="animate-spin" /> : <ArchiveRestore size={18} />}
+                            {t('unarchive', 'Unarchive')}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleArchive}
+                            disabled={archiving}
+                            className="w-full py-2 bg-orange-50 text-orange-600 rounded-xl font-medium hover:bg-orange-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            {archiving ? <Loader2 size={18} className="animate-spin" /> : <Archive size={18} />}
+                            {t('archive', 'Archive')}
+                          </button>
+                        )
+                      )}
+
+                      {/* Delete - Only for owners and not active ledger */}
+                      {isOwner(selectedLedger) && activeId !== selectedLedger.id && (
+                        showDeleteConfirm ? (
+                          <div className="space-y-2 p-3 bg-red-50 rounded-xl">
+                            <div className="flex items-center gap-2 text-red-600 text-sm">
+                              <AlertTriangle size={16} />
+                              <span>{t('deleteConfirmMessage', 'Type ledger name to confirm:')}</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={deleteConfirmName}
+                              onChange={(e) => setDeleteConfirmName(e.target.value)}
+                              placeholder={selectedLedger.name}
+                              className="w-full px-3 py-2 border border-red-200 rounded-lg text-sm"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setShowDeleteConfirm(false);
+                                  setDeleteConfirmName('');
+                                }}
+                                className="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium"
+                              >
+                                {t('cancel')}
+                              </button>
+                              <button
+                                onClick={handleDelete}
+                                disabled={deleteConfirmName !== selectedLedger.name}
+                                className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                              >
+                                {t('delete', 'Delete')}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setShowDeleteConfirm(true)}
+                            className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <Trash2 size={18} />
+                            {t('deleteLedger', 'Delete Ledger')}
+                          </button>
+                        )
+                      )}
+
+                      {/* Leave ledger for non-owners */}
+                      {!isOwner(selectedLedger) && activeId !== selectedLedger.id && (
+                        <button
+                          onClick={() => onDelete(selectedLedger.id)}
+                          className="w-full py-2 bg-red-50 text-red-600 rounded-xl font-medium hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={18} />
+                          {t('leaveLedger', 'Leave Ledger')}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-400">
+                    <p>{t('noData', 'No data available')}</p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center h-full text-gray-400">

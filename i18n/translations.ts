@@ -226,6 +226,17 @@ export const translations = {
     pendingChanges: '{{count}} pending changes',
     cloudSyncEnabled: 'Cloud Sync Enabled',
     cloudSyncDisabled: 'Cloud Sync Disabled',
+    syncStatusSyncing: 'Syncing...',
+    syncStatusSynced: 'Synced',
+    syncStatusOffline: 'Offline Mode',
+    syncStatusError: 'Sync Failed',
+
+    // Login Prompt
+    welcomeTitle: 'Welcome to Travel Finance Helper',
+    loginPromptSubtitle: 'Login to sync across devices and collaborate with friends',
+    guestMode: 'Try Guest Mode',
+    guestModeWarning: 'Guest mode data is saved only in this browser and will be lost when closed',
+    viewerCannotEdit: 'As a viewer, you cannot modify ledger settings',
 
     // Invitation
     inviteMembers: 'Invite Members',
@@ -294,6 +305,19 @@ export const translations = {
     leaveLedger: 'Leave Ledger',
     deleteConfirmMessage: 'Type ledger name to confirm:',
     delete: 'Delete',
+
+    // Cloud Ledger Management
+    ledgersCount: 'ledgers',
+    loadingCloudLedgers: 'Loading cloud ledgers...',
+    refreshCloudLedgers: 'Refresh cloud ledgers',
+    cloudOnly: 'Cloud',
+    availableInCloud: 'Available in cloud',
+    cloudLedger: 'Cloud Ledger',
+    notDownloaded: 'Not downloaded to this device',
+    downloading: 'Downloading...',
+    downloadToLocall: 'Download to Device',
+    noLedgers: 'No ledgers yet',
+    noData: 'No data available',
   },
 
   zh: {
@@ -478,6 +502,17 @@ export const translations = {
     pendingChanges: '{{count}} 个待同步更改',
     cloudSyncEnabled: '云同步已启用',
     cloudSyncDisabled: '云同步已禁用',
+    syncStatusSyncing: '同步中...',
+    syncStatusSynced: '已同步',
+    syncStatusOffline: '离线模式',
+    syncStatusError: '同步失败',
+
+    // Login Prompt
+    welcomeTitle: '欢迎使用旅行分账助手',
+    loginPromptSubtitle: '登录后可多设备同步、与好友协作分账',
+    guestMode: '游客模式体验',
+    guestModeWarning: '游客模式数据仅保存在当前浏览器，关闭后将丢失',
+    viewerCannotEdit: '作为查看者，您无法修改账本设置',
 
     // Invitation
     inviteMembers: '邀请成员',
@@ -546,6 +581,19 @@ export const translations = {
     leaveLedger: '退出账本',
     deleteConfirmMessage: '输入账本名称确认删除：',
     delete: '删除',
+
+    // Cloud Ledger Management
+    ledgersCount: '个账本',
+    loadingCloudLedgers: '加载云端账本...',
+    refreshCloudLedgers: '刷新云端账本',
+    cloudOnly: '云端',
+    availableInCloud: '在云端可用',
+    cloudLedger: '云端账本',
+    notDownloaded: '尚未下载到本设备',
+    downloading: '下载中...',
+    downloadToLocall: '下载到本地',
+    noLedgers: '暂无账本',
+    noData: '暂无数据',
   },
 };
 

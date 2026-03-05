@@ -12,6 +12,7 @@ import { MembersPanel } from './components/MembersPanel';
 import { MigrationModal } from './components/MigrationModal';
 import { UserProfileModal } from './components/UserProfileModal';
 import { LedgerManagePanel } from './components/LedgerManagePanel';
+import { LoginPromptModal } from './components/LoginPromptModal';
 import { WelcomeWizard } from './components/WelcomeWizard';
 import { createLedgerId, saveLedger, loadLedger, deleteLedger } from './services/storageService';
 import { exportToMarkdown, exportToPDF } from './services/exportService';
@@ -111,6 +112,7 @@ const App: React.FC = () => {
   const [showLedgerPanel, setShowLedgerPanel] = useState(false);
   const [showWelcomeWizard, setShowWelcomeWizard] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   // Check if current ledger is archived
   const currentLedger = ledgers.find(l => l.id === activeId);
@@ -148,6 +150,15 @@ const App: React.FC = () => {
       setShowInviteModal(true);
     }
   }, [user, inviteCodeFromUrl]);
+
+  // --- Show Login Prompt on first visit ---
+  useEffect(() => {
+    const hasVisitedBefore = localStorage.getItem('has_visited_before');
+    if (!hasVisitedBefore && !user) {
+      setShowLoginPrompt(true);
+      localStorage.setItem('has_visited_before', 'true');
+    }
+  }, [user]);
 
   // --- Check for local ledgers that need migration after login ---
   useEffect(() => {
@@ -290,8 +301,10 @@ const App: React.FC = () => {
 
           // Merge cloud expenses with local state
           setState(prev => {
+            // Filter out deleted expenses
+            const activeCloudExpenses = cloudExpenses.filter(e => !e.deletedAt);
             const localIds = new Set(prev.expenses.map(e => e.id));
-            const newExpenses = cloudExpenses.filter(e => !localIds.has(e.id));
+            const newExpenses = activeCloudExpenses.filter(e => !localIds.has(e.id));
 
             if (newExpenses.length > 0) {
               console.log('Merging', newExpenses.length, 'new expenses from cloud');
@@ -308,6 +321,8 @@ const App: React.FC = () => {
                   createdBy: e.createdBy,
                   createdByDisplayName: e.createdByDisplayName,
                   createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
+                  version: e.version || 1,  // Include version for sync
+                  updatedAt: e.updatedAt ? e.updatedAt.seconds * 1000 : undefined,  // Include updatedAt
                 }))
               ];
               // Save merged data locally
@@ -381,6 +396,21 @@ const App: React.FC = () => {
   const handleSwitchLedger = (id: string) => {
     setActiveId(id);
     setShowLedgerMenu(false);
+  };
+
+  // --- Login Prompt Handlers ---
+  const handleGuestMode = () => {
+    setShowLoginPrompt(false);
+  };
+
+  const handleLoginFromPrompt = () => {
+    setShowLoginPrompt(false);
+    setShowAuthModal(true);
+  };
+
+  const handleRegisterFromPrompt = () => {
+    setShowLoginPrompt(false);
+    setShowAuthModal(true);
   };
 
   const handleRefreshRate = async () => {
@@ -733,14 +763,21 @@ const App: React.FC = () => {
                 // Update local state immediately
                 setState(prev => ({...prev, expenses: prev.expenses.filter(e => e.id !== id)}));
 
-                // Delete from cloud if enabled
+                // Soft delete from cloud if enabled
                 if (user && activeId && isCloudEnabled) {
                   try {
-                    const { deleteExpense } = await import('./services/firestoreService');
-                    await deleteExpense(activeId, id);
-                    console.log('Expense deleted from cloud');
+                    const { softDeleteExpense, getExpenses } = await import('./services/firestoreService');
+                    // Get current version from cloud
+                    const expenses = await getExpenses(activeId);
+                    const cloudExpense = expenses.find(e => e.id === id);
+                    if (cloudExpense) {
+                      await softDeleteExpense(activeId, id, cloudExpense.version || 1);
+                      console.log('Expense soft deleted from cloud:', id);
+                    } else {
+                      console.log('Expense not found in cloud, skipping soft delete');
+                    }
                   } catch (err) {
-                    console.error('Failed to delete expense from cloud:', err);
+                    console.error('Failed to soft delete expense from cloud:', err);
                   }
                 }
               }}
@@ -966,6 +1003,14 @@ const App: React.FC = () => {
           }}
         />
       )}
+
+      {/* Login Prompt Modal for First-time Users */}
+      <LoginPromptModal
+        isOpen={showLoginPrompt && !user}
+        onLogin={handleLoginFromPrompt}
+        onRegister={handleRegisterFromPrompt}
+        onGuest={handleGuestMode}
+      />
 
       {/* Welcome Wizard for New Users */}
       {showWelcomeWizard && (

@@ -35,6 +35,11 @@ export interface Expense {
   createdBy?: string; // User ID who created this expense
   createdByDisplayName?: string; // Display name of creator
   createdAt?: number; // Timestamp when the expense record was created
+
+  // Version control fields for sync
+  version?: number;           // 版本号，每次修改 +1
+  deletedAt?: number;         // 软删除时间戳，存在则表示已删除
+  updatedAt?: number;         // 最后更新时间戳
 }
 
 export interface AppState {
