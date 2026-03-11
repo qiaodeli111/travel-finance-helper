@@ -1,72 +1,78 @@
-import React from 'react';
-import { AppState, Family } from '../types';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { TrendingUp, Users, Wallet, ArrowRightLeft } from 'lucide-react';
-import { useTranslation } from '../i18n/useTranslation';
+import React, { useState, useEffect, useRef } from 'react';
+import { AppState } from '../types';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { TrendingUp, Users, Wallet, ArrowRightLeft, Receipt, PiggyBank } from 'lucide-react';
+import { useTranslation, getCategoryTranslation } from '../i18n/useTranslation';
 
 interface SummaryProps {
   state: AppState;
 }
 
-const COLORS = ['#0ea5e9', '#f97316', '#84cc16', '#ec4899', '#8b5cf6', '#f59e0b'];
+const CATEGORY_COLORS = ['#0ea5e9', '#f97316', '#84cc16', '#ec4899', '#8b5cf6', '#f59e0b'];
+const FAMILY_CARD_GRADIENTS = [
+  'from-sky-500 via-blue-500 to-cyan-500',
+  'from-orange-400 via-amber-400 to-yellow-400',
+  'from-emerald-500 via-green-500 to-lime-500',
+  'from-fuchsia-500 via-pink-500 to-rose-500',
+  'from-violet-500 via-purple-500 to-indigo-500',
+  'from-teal-500 via-cyan-500 to-sky-500',
+];
+
+const getFamilyColorClass = (familyId: string) => {
+  let hash = 0;
+  for (let i = 0; i < familyId.length; i++) {
+    hash = familyId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return FAMILY_CARD_GRADIENTS[Math.abs(hash) % FAMILY_CARD_GRADIENTS.length];
+};
 
 export const Summary: React.FC<SummaryProps> = ({ state }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { expenses, families, exchangeRate, currencyCode, baseCurrency } = state;
 
-  // 1. Calculate Totals
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [isChartReady, setIsChartReady] = useState(false);
+
   const totalAmount = expenses.reduce((sum, e) => {
     const amt = e.amount !== undefined ? e.amount : (e as any).amountIDR;
     return sum + amt;
   }, 0);
-  const totalCNY = totalAmount / exchangeRate;
+  const totalBaseCurrency = totalAmount / exchangeRate;
 
-  // 2. Calculate Family Stats - Based on sharedWithFamilyIds per expense
   const familyStats = families.map(f => {
-    // Paid - sum of all expenses paid by this family
     const paid = expenses
       .filter(e => {
         if (e.payerId) return e.payerId === f.id;
-        // Legacy check
         return (e as any).payer === (f.id === 'f1' ? 'Family 1' : 'Family 2');
       })
       .reduce((sum, e) => sum + (e.amount || (e as any).amountIDR), 0);
 
-    // Share - calculated per expense based on sharedWithFamilyIds
     let share = 0;
     expenses.forEach(e => {
       const amt = e.amount || (e as any).amountIDR;
 
-      // Determine which families share this expense
       let sharingFamilyIds: string[];
       if (e.sharedWithFamilyIds !== undefined) {
-        // New format: use sharedWithFamilyIds + payer's family
         sharingFamilyIds = [e.payerId, ...e.sharedWithFamilyIds];
       } else {
-        // Legacy: all families share
         sharingFamilyIds = families.map(fm => fm.id);
       }
 
-      // Check if this family is part of the sharing group
       if (sharingFamilyIds.includes(f.id)) {
-        // Calculate total people in the sharing group
         const sharingFamilies = families.filter(fm => sharingFamilyIds.includes(fm.id));
         const sharingPeople = sharingFamilies.reduce((sum, fm) => sum + fm.count, 0);
 
-        // This family's share = amount * (this family's people / total sharing people)
         if (sharingPeople > 0) {
           share += amt * (f.count / sharingPeople);
         }
       }
     });
 
-    // Balance (Positive = Paid more than share = Should Receive)
     const balance = paid - share;
 
     return { ...f, paid, share, balance };
   });
 
-  // 3. Settlement Logic
   interface Settlement {
     from: string;
     to: string;
@@ -74,7 +80,6 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
   }
 
   const settlements: Settlement[] = [];
-  // Clone to modify balances during calculation
   const workingBalances = familyStats.map(f => ({ ...f }));
 
   const debtors = workingBalances.filter(b => b.balance < -0.01);
@@ -86,14 +91,12 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
   while (dIndex < debtors.length && cIndex < creditors.length) {
     const debtor = debtors[dIndex];
     const creditor = creditors[cIndex];
-
-    // Amount to settle is min of what debtor owes and what creditor is owed
     const amount = Math.min(Math.abs(debtor.balance), creditor.balance);
 
     settlements.push({
       from: debtor.name,
       to: creditor.name,
-      amount: amount
+      amount,
     });
 
     debtor.balance += amount;
@@ -103,7 +106,6 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
     if (creditor.balance < 0.01) cIndex++;
   }
 
-  // Chart Data
   const dataByCategory = expenses.reduce((acc, curr) => {
     const amt = curr.amount || (curr as any).amountIDR;
     const found = acc.find(item => item.name === curr.category);
@@ -115,125 +117,263 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
     return acc;
   }, [] as { name: string; value: number }[]);
 
+  const totalPeople = families.reduce((sum, family) => sum + family.count, 0);
+  const leadingPayer = familyStats.reduce<(typeof familyStats)[number] | null>(
+    (top, family) => (!top || family.paid > top.paid ? family : top),
+    null
+  );
+  const topReceiver = familyStats.reduce<(typeof familyStats)[number] | null>(
+    (top, family) => (!top || family.balance > top.balance ? family : top),
+    null
+  );
+
+  const categoryBreakdown = dataByCategory
+    .map((category, index) => ({
+      ...category,
+      color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
+      label: getCategoryTranslation(category.name, language),
+      percentage: totalAmount > 0 ? (category.value / totalAmount) * 100 : 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(val);
   const formatBaseCurrency = (val: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: baseCurrency || 'CNY', maximumFractionDigits: 0 }).format(val);
 
+  useEffect(() => {
+    if (dataByCategory.length === 0) return;
+    const rafId = requestAnimationFrame(() => {
+      if (chartContainerRef.current) {
+        const { offsetWidth, offsetHeight } = chartContainerRef.current;
+        if (offsetWidth > 0 && offsetHeight > 0) {
+          setIsChartReady(true);
+        }
+      }
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [dataByCategory.length]);
+
   return (
-    <div className="space-y-6">
-      {/* Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* Total Card */}
-        <div className="bg-gradient-to-br from-sky-500 to-blue-600 rounded-2xl p-5 text-white shadow-lg shadow-sky-500/20 col-span-1 md:col-span-2 lg:col-span-1 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp size={18} className="text-sky-100" />
-              <h3 className="text-sky-100 text-sm font-medium uppercase tracking-wider">{t('totalSpent')}</h3>
+    <div className="space-y-5 lg:space-y-6">
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-sky-900 to-cyan-700 p-6 text-white shadow-xl shadow-sky-900/10">
+        <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-16 left-1/3 h-40 w-40 rounded-full bg-cyan-300/10 blur-3xl" />
+        <div className="relative grid gap-5 lg:grid-cols-[1.35fr_0.9fr] lg:items-end">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold tracking-wide text-sky-100">
+              <TrendingUp size={14} />
+              {t('summaryHeroLabel')}
             </div>
-            <div className="text-3xl font-bold mb-1">{formatCurrency(totalAmount)}</div>
-            <div className="text-sky-100 text-sm flex items-center gap-1">
-              <span className="opacity-70">{t('approximately')}</span>
-              <span>{formatBaseCurrency(totalCNY)}</span>
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">{t('summaryHeroTitle')}</h2>
+              <p className="mt-2 max-w-2xl text-sm text-sky-100/85">{t('summaryHeroSubtitle')}</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur-sm">
+                <p className="text-xs text-sky-100/80">{t('totalSpent')}</p>
+                <p className="mt-1 text-3xl font-bold">{formatCurrency(totalAmount)}</p>
+                <p className="mt-1 text-sm text-sky-100/80">
+                  {t('approximately')} {formatBaseCurrency(totalBaseCurrency)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur-sm">
+                <p className="text-xs text-sky-100/80">{t('summaryExpenseCount')}</p>
+                <p className="mt-1 text-2xl font-bold">{expenses.length}</p>
+                <p className="mt-1 text-sm text-sky-100/80">{t('summaryParticipantCount', { count: totalPeople })}</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Family Cards */}
-        {familyStats.map((f, index) => (
-          <div key={f.id} className={`rounded-2xl p-5 shadow-md border-l-4 ${index % 2 === 0 ? 'bg-gradient-to-br from-orange-50 to-orange-100/50 border-orange-400' : 'bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-400'}`}>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-gray-600 text-sm font-medium flex items-center gap-1.5">
-                <Users size={14} />
-                {f.name}
-              </h3>
-              <span className="text-xs bg-white/80 px-2 py-0.5 rounded-full text-gray-500">{f.count} {t('persons')}</span>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+            <div className="rounded-2xl border border-white/35 bg-white/88 p-4 text-slate-900 shadow-lg shadow-slate-900/10 backdrop-blur-md">
+              <div className="flex items-center gap-2 text-sky-700">
+                <Receipt size={16} />
+                <span className="text-sm font-semibold">{t('summaryTopPayer')}</span>
+              </div>
+              <p className="mt-3 text-lg font-bold tracking-tight text-slate-950">{leadingPayer?.name || '—'}</p>
+              <p className="mt-1 text-sm font-medium text-slate-600">{leadingPayer ? formatCurrency(leadingPayer.paid) : formatCurrency(0)}</p>
             </div>
-            <div className="text-xl font-bold text-gray-800 mb-2">{formatCurrency(f.paid)}</div>
-            <div className="space-y-1">
-              <p className="text-xs text-gray-500">{t('shouldPay')}: {formatCurrency(f.share)}</p>
-              <p className={`text-xs font-bold px-2 py-1 rounded-lg inline-block ${f.balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {f.balance >= 0 ? `${t('receive')} ${formatCurrency(f.balance)}` : `${t('owe')} ${formatCurrency(Math.abs(f.balance))}`}
+            <div className="rounded-2xl border border-white/30 bg-slate-950/72 p-4 text-white shadow-lg shadow-slate-950/20 backdrop-blur-md">
+              <div className="flex items-center gap-2 text-emerald-200">
+                <PiggyBank size={16} />
+                <span className="text-sm font-semibold">{t('summaryTopReceiver')}</span>
+              </div>
+              <p className="mt-3 text-lg font-bold tracking-tight text-white">{topReceiver?.balance && topReceiver.balance > 0 ? topReceiver.name : '—'}</p>
+              <p className="mt-1 text-sm font-medium text-emerald-100/90">
+                {topReceiver && topReceiver.balance > 0 ? formatBaseCurrency(topReceiver.balance / exchangeRate) : formatBaseCurrency(0)}
               </p>
             </div>
           </div>
-        ))}
-      </div>
+        </div>
+      </section>
 
-      {/* Settlement Section */}
-      {settlements.length > 0 ? (
-        <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-100 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-5">
-            <div className="w-8 h-8 bg-indigo-500 rounded-xl flex items-center justify-center">
-              <ArrowRightLeft size={16} className="text-white" />
-            </div>
-            <h2 className="text-indigo-900 font-bold text-lg">{t('settlementPlan')}</h2>
-          </div>
-          <div className="space-y-3">
-            {settlements.map((s, idx) => (
-              <div key={idx} className="bg-white p-4 rounded-2xl shadow-sm border border-indigo-50 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-xl flex items-center justify-center">
-                    <span className="font-bold text-orange-600 text-sm">{s.from.slice(0, 2)}</span>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        {familyStats.map(family => {
+          const isSettled = Math.abs(family.balance) < 0.01;
+          const isPositive = family.balance > 0.01;
+          const statusLabel = isSettled ? t('settled') : isPositive ? t('receive') : t('owe');
+          const badgeClass = isSettled
+            ? 'bg-slate-100 text-slate-700'
+            : isPositive
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-rose-100 text-rose-700';
+          const balanceClass = isSettled
+            ? 'text-slate-600'
+            : isPositive
+              ? 'text-emerald-600'
+              : 'text-rose-600';
+
+          return (
+            <article
+              key={family.id}
+              className={`relative overflow-hidden rounded-3xl bg-gradient-to-br ${getFamilyColorClass(family.id)} p-[1px] shadow-lg shadow-slate-200/50`}
+            >
+              <div className="rounded-[calc(1.5rem-1px)] bg-white/90 p-5 backdrop-blur-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <Users size={16} />
+                      <span>{family.name}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">{t('summaryParticipantCount', { count: family.count })}</p>
                   </div>
-                  <ArrowRightLeft size={16} className="text-gray-300" />
-                  <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-                    <span className="font-bold text-emerald-600 text-sm">{s.to.slice(0, 2)}</span>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">{t('paid')}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(family.paid)}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">{t('shouldPay')}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(family.share)}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-gray-500 text-sm">{s.from} {t('pays')} {s.to}</span>
-                  <span className="text-xl font-bold text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-xl">{formatBaseCurrency(s.amount / exchangeRate)}</span>
+
+                <div className="mt-4 rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                  <p className="text-xs text-slate-500">{t('summaryNetBalance')}</p>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <p className={`text-lg font-bold ${balanceClass}`}>
+                      {statusLabel}
+                      {!isSettled && ` ${formatCurrency(Math.abs(family.balance))}`}
+                    </p>
+                    <p className="text-xs text-slate-400">{formatBaseCurrency(Math.abs(family.balance) / exchangeRate)}</p>
+                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-          <p className="text-center text-xs text-indigo-400 mt-4">
-            * {t('settlementCalcHint')}
-          </p>
-        </div>
-      ) : (
-        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-8 text-center">
-          <div className="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <Wallet size={28} className="text-green-500" />
-          </div>
-          <p className="text-green-700 font-semibold text-lg">{t('allSettled')}</p>
-          <p className="text-green-500 text-sm mt-1">{t('allSettledHint')}</p>
-        </div>
-      )}
+            </article>
+          );
+        })}
+      </section>
 
-      {/* Chart */}
-      {dataByCategory.length > 0 && (
-        <div className="bg-white/80 backdrop-blur-sm p-5 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-7 h-7 bg-sky-100 rounded-lg flex items-center justify-center">
-              <TrendingUp size={14} className="text-sky-600" />
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="glass-card rounded-3xl p-5 shadow-lg shadow-slate-200/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600">
+              <ArrowRightLeft size={18} />
             </div>
-            <h3 className="text-gray-700 font-bold">{t('categoryStats')}</h3>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">{t('settlementPlan')}</h3>
+              <p className="text-sm text-slate-500">{t('settlementCalcHint')}</p>
+            </div>
           </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={dataByCategory}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={85}
-                  fill="#8884d8"
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {dataByCategory.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+
+          {settlements.length > 0 ? (
+            <div className="mt-5 space-y-3">
+              {settlements.map((settlement, index) => (
+                <div key={index} className="rounded-2xl border border-slate-100 bg-white/90 p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600">{settlement.from}</div>
+                      <ArrowRightLeft size={16} className="text-slate-300" />
+                      <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-600">{settlement.to}</div>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <p className="text-sm text-slate-500">{settlement.from} {t('pays')} {settlement.to}</p>
+                      <p className="mt-1 text-lg font-bold text-indigo-600">{formatBaseCurrency(settlement.amount / exchangeRate)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-3xl bg-gradient-to-r from-emerald-50 to-green-50 p-6 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600">
+                <Wallet size={24} />
+              </div>
+              <p className="mt-4 text-lg font-semibold text-emerald-700">{t('allSettled')}</p>
+              <p className="mt-1 text-sm text-emerald-600">{t('allSettledHint')}</p>
+            </div>
+          )}
         </div>
-      )}
+
+        <div className="glass-card rounded-3xl p-5 shadow-lg shadow-slate-200/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-600">
+              <TrendingUp size={18} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">{t('categoryStats')}</h3>
+              <p className="text-sm text-slate-500">{t('summaryCategorySubtitle')}</p>
+            </div>
+          </div>
+
+          {categoryBreakdown.length > 0 ? (
+            <div className="mt-5 space-y-5">
+              <div ref={chartContainerRef} className="h-64 w-full">
+                {isChartReady && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={categoryBreakdown}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={92}
+                        paddingAngle={3}
+                        dataKey="value"
+                        stroke="none"
+                      >
+                        {categoryBreakdown.map(category => (
+                          <Cell key={category.name} fill={category.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => formatCurrency(value)}
+                        contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {categoryBreakdown.map(category => (
+                  <div key={category.name} className="flex items-center justify-between gap-3 rounded-2xl bg-white/80 px-4 py-3 shadow-sm ring-1 ring-slate-100">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: category.color }} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-800">{category.label}</p>
+                        <p className="text-xs text-slate-500">{category.percentage.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-slate-900">{formatCurrency(category.value)}</p>
+                      <p className="text-xs text-slate-500">{formatBaseCurrency(category.value / exchangeRate)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+              {t('noExpensesHint')}
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 };

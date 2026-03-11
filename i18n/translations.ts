@@ -116,6 +116,16 @@ export const translations = {
     allSettled: 'All Settled!',
     allSettledHint: 'All groups have paid their fair share',
     categoryStats: 'Expense by Category',
+    summaryHeroLabel: 'Trip overview',
+    summaryHeroTitle: 'Keep the trip joyful—see who covered what and settle up with ease',
+    summaryHeroSubtitle: 'A warm, shareable snapshot for friends and family: balances, repayments, and spending all in one place.',
+    summaryExpenseCount: 'Recorded expenses',
+    summaryParticipantCount: '{{count}} participants',
+    summaryTopPayer: 'Top contributor',
+    summaryTopReceiver: 'Largest receiver',
+    summaryNetBalance: 'Net balance',
+    settled: 'Settled',
+    summaryCategorySubtitle: 'Localized category totals with share of the overall budget',
 
     // Expense List
     noExpenses: 'No expenses yet',
@@ -392,6 +402,16 @@ export const translations = {
     allSettled: '账目已平，无需转账',
     allSettledHint: '各家庭支出比例均衡',
     categoryStats: '消费类别统计',
+    summaryHeroLabel: '旅行概览',
+    summaryHeroTitle: '把旅途的开心留住，把谁垫付、谁该补看清就好',
+    summaryHeroSubtitle: '给家人朋友一起看的暖心结算页：谁先垫了、接下来怎么补、钱主要花在哪，一页就明白。',
+    summaryExpenseCount: '已记录账单',
+    summaryParticipantCount: '{{count}} 人参与',
+    summaryTopPayer: '支出最多',
+    summaryTopReceiver: '应收最多',
+    summaryNetBalance: '净额',
+    settled: '已结清',
+    summaryCategorySubtitle: '按类别汇总支出，并展示占比',
 
     // Expense List
     noExpenses: '暂无账单记录',
