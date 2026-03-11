@@ -1,9 +1,0 @@
-{
-  "id": "1",
-  "subject": "分析同步错误日志",
-  "description": "检查 CloudSyncContext.tsx 中的 syncNow 函数实现，查看控制台错误日志，分析 Firestore 权限问题",
-  "status": "pending",
-  "owner": null,
-  "result": null,
-  "createdAt": "2026-03-02T08:32:15.854Z"
-}
