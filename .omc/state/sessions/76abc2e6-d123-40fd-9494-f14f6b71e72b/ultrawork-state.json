@@ -1,8 +1,0 @@
-{
-  "active": true,
-  "started_at": "2026-03-06T14:23:31.050Z",
-  "original_prompt": "/dogfood 账户：agu@test.com 密码：qiaoyunliang123，帮我验证登陆后的一切功能。\n\n最终按照两份报告输出的问题，完成问题的修复 /ultrawork",
-  "session_id": "76abc2e6-d123-40fd-9494-f14f6b71e72b",
-  "reinforcement_count": 0,
-  "last_checked_at": "2026-03-06T14:23:31.052Z"
-}

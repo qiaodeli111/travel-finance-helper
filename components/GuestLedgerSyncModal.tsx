@@ -66,6 +66,23 @@ export const GuestLedgerSyncModal: React.FC<GuestLedgerSyncModalProps> = ({
     }
   }, [isOpen, guestLedgers, cloudLedgers]);
 
+  // Close on Escape for keyboard accessibility
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   const generateNewName = (baseName: string): string => {
     const now = new Date();
     const timestamp = now.getFullYear().toString() +
@@ -144,6 +161,12 @@ export const GuestLedgerSyncModal: React.FC<GuestLedgerSyncModalProps> = ({
               category: expense.category,
               payerId: expense.payerId,
               sharedWithFamilyIds: expense.sharedWithFamilyIds || [],
+              travelPlaceName: expense.travelPlaceName,
+              paymentCurrency: expense.paymentCurrency,
+              settlementCurrency: expense.settlementCurrency,
+              fxSnapshot: expense.fxSnapshot,
+              amountSettlement: expense.amountSettlement,
+              version: expense.version || 1,
             } as any);
           }
         } else if (decision.action === 'merge') {
@@ -164,6 +187,12 @@ export const GuestLedgerSyncModal: React.FC<GuestLedgerSyncModalProps> = ({
                 category: expense.category,
                 payerId: expense.payerId,
                 sharedWithFamilyIds: expense.sharedWithFamilyIds || [],
+                travelPlaceName: expense.travelPlaceName,
+                paymentCurrency: expense.paymentCurrency,
+                settlementCurrency: expense.settlementCurrency,
+                fxSnapshot: expense.fxSnapshot,
+                amountSettlement: expense.amountSettlement,
+                version: expense.version || 1,
               } as any);
             }
           }

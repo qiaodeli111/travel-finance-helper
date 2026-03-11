@@ -40,8 +40,8 @@ interface LedgerMeta {
 }
 
 const DEFAULT_FAMILIES: Family[] = [
-  { id: 'f1', name: '家庭 1', count: 4 },
-  { id: 'f2', name: '家庭 2', count: 2 }
+  { id: 'f1', name: 'family1', count: 2 },
+  { id: 'f2', name: 'lilei', count: 1 }
 ];
 
 const DEFAULT_STATE: AppState = {
@@ -75,7 +75,7 @@ const App: React.FC = () => {
 
   // --- Auth & Cloud Sync ---
   const { user, signOut, loading: authLoading } = useAuth();
-  const { isCloudEnabled, enableCloud, syncNow, markPendingChange, loadFromCloud, cloudLedgers } = useCloudSync();
+  const { isCloudEnabled, enableCloud, syncNow, markPendingChange, loadFromCloud, cloudLedgers, isLoadingLedgers } = useCloudSync();
 
   // Auto-set language based on origin country
   const updateLanguageFromOrigin = useCallback((originCountry: string) => {
@@ -275,12 +275,18 @@ const App: React.FC = () => {
   }, [ledgers, updateLanguageFromOrigin, isCloudEnabled, user, loadFromCloud, defaultLedgerId, isGuestMode, guestLedgers]);
 
   useEffect(() => {
-    // Run initialization when auth is ready and ledgers are available
-    // Note: We don't use initRun marker because ledgers might load asynchronously
-    if (!authLoading && user && ledgers.length > 0 && !activeId) {
-      initApp();
+    // Run initialization when auth is ready
+    // Only show WelcomeWizard after we're certain the user has no ledgers
+    // (not just because ledgers haven't loaded yet)
+    if (!authLoading && user && !activeId && !isLoadingLedgers && !showWelcomeWizard) {
+      if (ledgers.length > 0) {
+        // User has ledgers - load the default or most recent one
+        initApp();
+      }
+      // Don't auto-show WelcomeWizard here - let user click "New Ledger"
+      // The original blank screen issue is fixed by waiting for isLoadingLedgers
     }
-  }, [authLoading, user, ledgers.length, activeId, initApp]);
+  }, [authLoading, user, ledgers.length, activeId, initApp, isGuestMode, isLoadingLedgers, showWelcomeWizard]);
 
   // --- Fetch current user role ---
   useEffect(() => {
@@ -340,8 +346,8 @@ const App: React.FC = () => {
           // Ensure required fields exist
           if (!cloudData.families) {
             cloudData.families = [
-              { id: 'f1', name: '家庭 1', count: 4 },
-              { id: 'f2', name: '家庭 2', count: 2 }
+              { id: 'f1', name: 'family1', count: 2 },
+              { id: 'f2', name: 'lilei', count: 1 }
             ];
           }
           if (!cloudData.baseCurrency) {
@@ -383,6 +389,11 @@ const App: React.FC = () => {
               category: e.category,
               payerId: e.payerId,
               sharedWithFamilyIds: e.sharedWithFamilyIds,
+              travelPlaceName: e.travelPlaceName,
+              paymentCurrency: e.paymentCurrency,
+              settlementCurrency: e.settlementCurrency,
+              fxSnapshot: e.fxSnapshot,
+              amountSettlement: e.amountSettlement,
               createdBy: e.createdBy,
               createdByDisplayName: e.createdByDisplayName,
               createdAt: e.createdAt ? e.createdAt.seconds * 1000 : undefined,
@@ -799,10 +810,10 @@ const App: React.FC = () => {
         </div>
 
         {/* Stats Summary (Mini) */}
-        <div className="flex justify-between items-end pointer-events-auto">
-          <div className="glass-card px-4 py-2 rounded-xl">
-            <p className="text-white/70 text-xs mb-0.5">{t('currentRate')}</p>
-            <p className="font-mono font-semibold text-sm">1 {state.baseCurrency} = {state.exchangeRate.toFixed(2)} {state.currencyCode}</p>
+          <div className="flex justify-between items-end gap-3 pointer-events-auto">
+          <div className="rounded-2xl border border-white/30 bg-white/92 px-4 py-3 text-slate-900 shadow-lg shadow-slate-950/10 backdrop-blur-md">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700/80">{t('currentRate')}</p>
+            <p className="mt-1 font-mono text-sm font-bold tabular-nums text-slate-950">1 {state.baseCurrency} = {state.exchangeRate.toFixed(2)} {state.currencyCode}</p>
           </div>
           <div className="text-right">
              <p className="text-white/70 text-xs mb-1">{t('totalExpense')}</p>
@@ -873,7 +884,7 @@ const App: React.FC = () => {
 
       {/* Export Actions - PDF only */}
       <div className="mx-4 mt-6 mb-24">
-        <button onClick={handleExportPDF} disabled={exportLoading} className="w-full flex items-center justify-center bg-gradient-to-r from-sky-500 to-blue-600 text-white p-3.5 rounded-2xl shadow-lg shadow-sky-500/25 text-sm font-bold gap-2 hover:from-sky-600 hover:to-blue-700 transition-all">
+        <button onClick={handleExportPDF} disabled={exportLoading || state.expenses.length === 0} className={`w-full flex items-center justify-center p-3.5 rounded-2xl text-sm font-bold gap-2 transition-all ${state.expenses.length === 0 ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-lg shadow-sky-500/25 hover:from-sky-600 hover:to-blue-700'}`}>
           {exportLoading ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
           {t('exportPDF')}
         </button>
@@ -901,7 +912,10 @@ const App: React.FC = () => {
       {showAddModal && (
         <ExpenseForm
           families={state.families}
+          destination={state.destination}
           currencyCode={state.currencyCode}
+          baseCurrency={state.baseCurrency}
+          exchangeRate={state.exchangeRate}
           onAddExpense={async (expense) => {
             const newExpense = {
               ...expense,
@@ -948,6 +962,11 @@ const App: React.FC = () => {
                   category: newExpense.category,
                   payerId: newExpense.payerId,
                   sharedWithFamilyIds: newExpense.sharedWithFamilyIds || [],
+                  travelPlaceName: newExpense.travelPlaceName,
+                  paymentCurrency: newExpense.paymentCurrency,
+                  settlementCurrency: newExpense.settlementCurrency,
+                  fxSnapshot: newExpense.fxSnapshot,
+                  amountSettlement: newExpense.amountSettlement,
                 } as any);
                 console.log('Expense uploaded to cloud');
               } catch (err) {
@@ -973,6 +992,14 @@ const App: React.FC = () => {
           onImportJSON={handleImportJSON}
           onExportMarkdown={handleExportMarkdown}
           onExportPDF={handleExportPDF}
+          onOpenInviteMembers={() => {
+            setShowSettingsModal(false);
+            setShowInviteModal(true);
+          }}
+          onOpenMembers={() => {
+            setShowSettingsModal(false);
+            setShowMembersPanel(true);
+          }}
         />
       )}
 
@@ -1119,6 +1146,7 @@ const App: React.FC = () => {
       {showWelcomeWizard && (
         <WelcomeWizard
           isOpen={showWelcomeWizard}
+          onClose={() => setShowWelcomeWizard(false)}
           onComplete={async (data) => {
             const id = createLedgerId();
             const newState: AppState = {

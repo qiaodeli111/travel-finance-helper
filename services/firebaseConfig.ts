@@ -1,6 +1,10 @@
 import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth, Auth } from 'firebase/auth';
-import { getFirestore, Firestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import {
+  getFirestore,
+  Firestore,
+  enableIndexedDbPersistence
+} from 'firebase/firestore';
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',

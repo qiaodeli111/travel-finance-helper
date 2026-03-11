@@ -1,7 +1,7 @@
 {
-  "tool_name": "mcp__brave-search__brave_web_search",
-  "tool_input_preview": "{\"query\":\"travel-finance-helper netlify app 巴厘岛分账助手\"}",
-  "error": "fetch failed",
-  "timestamp": "2026-03-06T15:09:28.663Z",
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/home/jetio/jetdev/github/travel-finance-helper/components/UserProfileModal.tsx,\",\"offset\":0,\"limit\":2000,\"pages\":\"1\"}",
+  "error": "File does not exist. Note: your current working directory is /home/jetio/jetdev/github/travel-finance-helper. Did you mean UserProfileModal.tsx?",
+  "timestamp": "2026-03-11T09:51:04.379Z",
   "retry_count": 1
 }

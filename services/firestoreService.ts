@@ -608,6 +608,11 @@ export async function getExpenses(ledgerId: string): Promise<CloudExpense[]> {
         category: data.category,
         payerId: data.payerId,
         sharedWithFamilyIds: data.sharedWithFamilyIds,
+        travelPlaceName: data.travelPlaceName,
+        paymentCurrency: data.paymentCurrency,
+        settlementCurrency: data.settlementCurrency,
+        fxSnapshot: data.fxSnapshot,
+        amountSettlement: data.amountSettlement,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
         version: data.version || 1,  // Include version
@@ -645,6 +650,11 @@ export async function updateExpense(
     if (data.category !== undefined) updateData.category = data.category;
     if (data.payerId !== undefined) updateData.payerId = data.payerId;
     if (data.sharedWithFamilyIds !== undefined) updateData.sharedWithFamilyIds = data.sharedWithFamilyIds;
+    if (data.travelPlaceName !== undefined) updateData.travelPlaceName = data.travelPlaceName;
+    if (data.paymentCurrency !== undefined) updateData.paymentCurrency = data.paymentCurrency;
+    if (data.settlementCurrency !== undefined) updateData.settlementCurrency = data.settlementCurrency;
+    if (data.fxSnapshot !== undefined) updateData.fxSnapshot = data.fxSnapshot;
+    if (data.amountSettlement !== undefined) updateData.amountSettlement = data.amountSettlement;
     if (data.version !== undefined) updateData.version = data.version;
 
     await updateDoc(expenseRef, updateData);
@@ -716,6 +726,11 @@ export function subscribeToExpenses(
         category: data.category,
         payerId: data.payerId,
         sharedWithFamilyIds: data.sharedWithFamilyIds,
+        travelPlaceName: data.travelPlaceName,
+        paymentCurrency: data.paymentCurrency,
+        settlementCurrency: data.settlementCurrency,
+        fxSnapshot: data.fxSnapshot,
+        amountSettlement: data.amountSettlement,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
         version: data.version || 1,  // Include version for conflict resolution

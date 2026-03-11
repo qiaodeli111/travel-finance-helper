@@ -1,0 +1,22 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "app_language",
+          "value": "zh"
+        },
+        {
+          "name": "has_visited_before",
+          "value": "true"
+        },
+        {
+          "name": "default_ledger_id",
+          "value": "79bec300-318d-4f89-9973-84f9ab2d713d"
+        }
+      ]
+    }
+  ]
+}

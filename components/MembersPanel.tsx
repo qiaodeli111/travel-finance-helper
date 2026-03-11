@@ -41,6 +41,27 @@ export const MembersPanel: React.FC<MembersPanelProps> = ({
     }
   }, [isOpen, ledgerId]);
 
+  // Close on Escape for keyboard accessibility
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (showRemoveConfirm) {
+          setShowRemoveConfirm(null);
+        } else {
+          onClose();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, showRemoveConfirm, onClose]);
+
   const fetchMembers = async () => {
     setLoading(true);
     setError(null);

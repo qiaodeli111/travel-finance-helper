@@ -23,6 +23,17 @@ export const CATEGORY_MIGRATION: Record<string, Category> = {
   '其他': Category.OTHER,
 };
 
+export interface FxSnapshot {
+  /**
+   * FX rate quote per base.
+   * Example: base=CNY, quote=IDR, rate=2000 means 1 CNY = 2000 IDR.
+   */
+  base: string;
+  quote: string;
+  rate: number;
+  capturedAt: number; // timestamp
+}
+
 export interface Expense {
   id: string;
   date: number; // timestamp
@@ -31,6 +42,14 @@ export interface Expense {
   category: Category;
   payerId: string; // Family ID
   sharedWithFamilyIds?: string[]; // IDs of families sharing this expense (excluding payer)
+
+  // Multi-currency settlement (optional, backward compatible)
+  travelPlaceName?: string;
+  paymentCurrency?: string;
+  settlementCurrency?: string;
+  fxSnapshot?: FxSnapshot;
+  amountSettlement?: number;
+
   // Creator info for tracking who added the expense
   createdBy?: string; // User ID who created this expense
   createdByDisplayName?: string; // Display name of creator

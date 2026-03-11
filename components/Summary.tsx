@@ -3,6 +3,7 @@ import { AppState } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { TrendingUp, Users, Wallet, ArrowRightLeft, Receipt, PiggyBank } from 'lucide-react';
 import { useTranslation, getCategoryTranslation } from '../i18n/useTranslation';
+import { computeLedgerSettlement, formatPaidByCurrency } from '../services/settlementService';
 
 interface SummaryProps {
   state: AppState;
@@ -28,119 +29,55 @@ const getFamilyColorClass = (familyId: string) => {
 
 export const Summary: React.FC<SummaryProps> = ({ state }) => {
   const { t, language } = useTranslation();
-  const { expenses, families, exchangeRate, currencyCode, baseCurrency } = state;
+  const { expenses, families, baseCurrency } = state;
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const [isChartReady, setIsChartReady] = useState(false);
 
-  const totalAmount = expenses.reduce((sum, e) => {
-    const amt = e.amount !== undefined ? e.amount : (e as any).amountIDR;
-    return sum + amt;
-  }, 0);
-  const totalBaseCurrency = totalAmount / exchangeRate;
+  const settlementSummary = computeLedgerSettlement(state);
+  const { settlementCurrency, totals, perFamily, transfers, categoryTotalsSettlement } = settlementSummary;
 
-  const familyStats = families.map(f => {
-    const paid = expenses
-      .filter(e => {
-        if (e.payerId) return e.payerId === f.id;
-        return (e as any).payer === (f.id === 'f1' ? 'Family 1' : 'Family 2');
-      })
-      .reduce((sum, e) => sum + (e.amount || (e as any).amountIDR), 0);
-
-    let share = 0;
-    expenses.forEach(e => {
-      const amt = e.amount || (e as any).amountIDR;
-
-      let sharingFamilyIds: string[];
-      if (e.sharedWithFamilyIds !== undefined) {
-        sharingFamilyIds = [e.payerId, ...e.sharedWithFamilyIds];
-      } else {
-        sharingFamilyIds = families.map(fm => fm.id);
-      }
-
-      if (sharingFamilyIds.includes(f.id)) {
-        const sharingFamilies = families.filter(fm => sharingFamilyIds.includes(fm.id));
-        const sharingPeople = sharingFamilies.reduce((sum, fm) => sum + fm.count, 0);
-
-        if (sharingPeople > 0) {
-          share += amt * (f.count / sharingPeople);
-        }
-      }
-    });
-
-    const balance = paid - share;
-
-    return { ...f, paid, share, balance };
+  const familyStats = families.map(family => {
+    const settlementStats = perFamily.find(item => item.familyId === family.id);
+    return {
+      ...family,
+      paidByCurrency: settlementStats?.paidByCurrency ?? {},
+      paidSettlement: settlementStats?.paidSettlement ?? 0,
+      consumedSettlement: settlementStats?.consumedSettlement ?? 0,
+      netSettlement: settlementStats?.netSettlement ?? 0,
+    };
   });
 
-  interface Settlement {
-    from: string;
-    to: string;
-    amount: number;
-  }
-
-  const settlements: Settlement[] = [];
-  const workingBalances = familyStats.map(f => ({ ...f }));
-
-  const debtors = workingBalances.filter(b => b.balance < -0.01);
-  const creditors = workingBalances.filter(b => b.balance > 0.01);
-
-  let dIndex = 0;
-  let cIndex = 0;
-
-  while (dIndex < debtors.length && cIndex < creditors.length) {
-    const debtor = debtors[dIndex];
-    const creditor = creditors[cIndex];
-    const amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-
-    settlements.push({
-      from: debtor.name,
-      to: creditor.name,
-      amount,
-    });
-
-    debtor.balance += amount;
-    creditor.balance -= amount;
-
-    if (Math.abs(debtor.balance) < 0.01) dIndex++;
-    if (creditor.balance < 0.01) cIndex++;
-  }
-
-  const dataByCategory = expenses.reduce((acc, curr) => {
-    const amt = curr.amount || (curr as any).amountIDR;
-    const found = acc.find(item => item.name === curr.category);
-    if (found) {
-      found.value += amt;
-    } else {
-      acc.push({ name: curr.category, value: amt });
-    }
-    return acc;
-  }, [] as { name: string; value: number }[]);
-
+  const totalAmount = totals.totalSettlement;
   const totalPeople = families.reduce((sum, family) => sum + family.count, 0);
-  const leadingPayer = familyStats.reduce<(typeof familyStats)[number] | null>(
-    (top, family) => (!top || family.paid > top.paid ? family : top),
-    null
+  const leadingPayer: (typeof familyStats)[number] | null = familyStats.reduce(
+    (top, family) => (!top || family.paidSettlement > top.paidSettlement ? family : top),
+    null as (typeof familyStats)[number] | null
   );
-  const topReceiver = familyStats.reduce<(typeof familyStats)[number] | null>(
-    (top, family) => (!top || family.balance > top.balance ? family : top),
-    null
+  const topReceiver: (typeof familyStats)[number] | null = familyStats.reduce(
+    (top, family) => (!top || family.netSettlement > top.netSettlement ? family : top),
+    null as (typeof familyStats)[number] | null
   );
+  const unsettledFamilies = familyStats.filter(family => Math.abs(family.netSettlement) >= 0.01);
+  const payableFamilies = familyStats.filter(family => family.netSettlement < -0.01);
+  const receivableFamilies = familyStats.filter(family => family.netSettlement > 0.01);
+  const totalSettlementAmount = transfers.reduce((sum, transfer) => sum + transfer.amountSettlement, 0);
 
-  const categoryBreakdown = dataByCategory
-    .map((category, index) => ({
-      ...category,
+  const categoryBreakdown = Object.entries(categoryTotalsSettlement)
+    .map(([name, value], index) => ({
+      name,
+      value,
       color: CATEGORY_COLORS[index % CATEGORY_COLORS.length],
-      label: getCategoryTranslation(category.name, language),
-      percentage: totalAmount > 0 ? (category.value / totalAmount) * 100 : 0,
+      label: getCategoryTranslation(name, language),
+      percentage: totalAmount > 0 ? (value / totalAmount) * 100 : 0,
     }))
     .sort((a, b) => b.value - a.value);
 
-  const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: currencyCode, maximumFractionDigits: 0 }).format(val);
-  const formatBaseCurrency = (val: number) => new Intl.NumberFormat('zh-CN', { style: 'currency', currency: baseCurrency || 'CNY', maximumFractionDigits: 0 }).format(val);
+  const settlementCurrencyLabel = settlementCurrency || baseCurrency || 'CNY';
+  const formatSettlementCurrency = (val: number) => new Intl.NumberFormat(language === 'zh' ? 'zh-CN' : 'en-US', { style: 'currency', currency: settlementCurrencyLabel, maximumFractionDigits: 0 }).format(val);
 
   useEffect(() => {
-    if (dataByCategory.length === 0) return;
+    if (categoryBreakdown.length === 0) return;
     const rafId = requestAnimationFrame(() => {
       if (chartContainerRef.current) {
         const { offsetWidth, offsetHeight } = chartContainerRef.current;
@@ -150,7 +87,7 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
       }
     });
     return () => cancelAnimationFrame(rafId);
-  }, [dataByCategory.length]);
+  }, [categoryBreakdown.length]);
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -170,10 +107,8 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
             <div className="flex flex-wrap gap-3">
               <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur-sm">
                 <p className="text-xs text-sky-100/80">{t('totalSpent')}</p>
-                <p className="mt-1 text-3xl font-bold">{formatCurrency(totalAmount)}</p>
-                <p className="mt-1 text-sm text-sky-100/80">
-                  {t('approximately')} {formatBaseCurrency(totalBaseCurrency)}
-                </p>
+                <p className="mt-1 text-3xl font-bold">{formatSettlementCurrency(totalAmount)}</p>
+                <p className="mt-1 text-sm text-sky-100/80">{settlementCurrencyLabel}</p>
               </div>
               <div className="rounded-2xl bg-white/10 px-4 py-3 backdrop-blur-sm">
                 <p className="text-xs text-sky-100/80">{t('summaryExpenseCount')}</p>
@@ -190,17 +125,25 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                 <span className="text-sm font-semibold">{t('summaryTopPayer')}</span>
               </div>
               <p className="mt-3 text-lg font-bold tracking-tight text-slate-950">{leadingPayer?.name || '—'}</p>
-              <p className="mt-1 text-sm font-medium text-slate-600">{leadingPayer ? formatCurrency(leadingPayer.paid) : formatCurrency(0)}</p>
+              <p className="mt-1 text-sm font-medium text-slate-600">{leadingPayer ? formatPaidByCurrency(leadingPayer.paidByCurrency) || formatSettlementCurrency(leadingPayer.paidSettlement) : formatSettlementCurrency(0)}</p>
             </div>
             <div className="rounded-2xl border border-white/30 bg-slate-950/72 p-4 text-white shadow-lg shadow-slate-950/20 backdrop-blur-md">
               <div className="flex items-center gap-2 text-emerald-200">
                 <PiggyBank size={16} />
                 <span className="text-sm font-semibold">{t('summaryTopReceiver')}</span>
               </div>
-              <p className="mt-3 text-lg font-bold tracking-tight text-white">{topReceiver?.balance && topReceiver.balance > 0 ? topReceiver.name : '—'}</p>
+              <p className="mt-3 text-lg font-bold tracking-tight text-white">{topReceiver && topReceiver.netSettlement > 0 ? topReceiver.name : '—'}</p>
               <p className="mt-1 text-sm font-medium text-emerald-100/90">
-                {topReceiver && topReceiver.balance > 0 ? formatBaseCurrency(topReceiver.balance / exchangeRate) : formatBaseCurrency(0)}
+                {topReceiver && topReceiver.netSettlement > 0 ? formatSettlementCurrency(topReceiver.netSettlement) : formatSettlementCurrency(0)}
               </p>
+            </div>
+            <div className="rounded-2xl border border-white/30 bg-white/12 p-4 text-white shadow-lg shadow-slate-950/10 backdrop-blur-md sm:col-span-2 lg:col-span-1">
+              <div className="flex items-center gap-2 text-sky-100">
+                <Wallet size={16} />
+                <span className="text-sm font-semibold">{t('summaryActiveBalances')}</span>
+              </div>
+              <p className="mt-3 text-lg font-bold tracking-tight text-white">{unsettledFamilies.length} / {families.length}</p>
+              <p className="mt-1 text-sm text-sky-100/80">{t('summarySettlementReadyHint')}</p>
             </div>
           </div>
         </div>
@@ -208,8 +151,8 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {familyStats.map(family => {
-          const isSettled = Math.abs(family.balance) < 0.01;
-          const isPositive = family.balance > 0.01;
+          const isSettled = Math.abs(family.netSettlement) < 0.01;
+          const isPositive = family.netSettlement > 0.01;
           const statusLabel = isSettled ? t('settled') : isPositive ? t('receive') : t('owe');
           const badgeClass = isSettled
             ? 'bg-slate-100 text-slate-700'
@@ -244,11 +187,13 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                 <div className="mt-5 grid grid-cols-2 gap-3">
                   <div className="rounded-2xl bg-slate-50 p-3">
                     <p className="text-xs text-slate-500">{t('paid')}</p>
-                    <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(family.paid)}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {formatPaidByCurrency(family.paidByCurrency) || formatSettlementCurrency(family.paidSettlement)}
+                    </p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-3">
                     <p className="text-xs text-slate-500">{t('shouldPay')}</p>
-                    <p className="mt-1 text-base font-semibold text-slate-900">{formatCurrency(family.share)}</p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">{formatSettlementCurrency(family.consumedSettlement)}</p>
                   </div>
                 </div>
 
@@ -257,9 +202,9 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                   <div className="mt-1 flex items-end justify-between gap-3">
                     <p className={`text-lg font-bold ${balanceClass}`}>
                       {statusLabel}
-                      {!isSettled && ` ${formatCurrency(Math.abs(family.balance))}`}
+                      {!isSettled && ` ${formatSettlementCurrency(Math.abs(family.netSettlement))}`}
                     </p>
-                    <p className="text-xs text-slate-400">{formatBaseCurrency(Math.abs(family.balance) / exchangeRate)}</p>
+                    <p className="text-xs text-slate-400">{settlementCurrencyLabel}</p>
                   </div>
                 </div>
               </div>
@@ -280,23 +225,55 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
             </div>
           </div>
 
-          {settlements.length > 0 ? (
-            <div className="mt-5 space-y-3">
-              {settlements.map((settlement, index) => (
-                <div key={index} className="rounded-2xl border border-slate-100 bg-white/90 p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600">{settlement.from}</div>
-                      <ArrowRightLeft size={16} className="text-slate-300" />
-                      <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-600">{settlement.to}</div>
-                    </div>
-                    <div className="text-left sm:text-right">
-                      <p className="text-sm text-slate-500">{settlement.from} {t('pays')} {settlement.to}</p>
-                      <p className="mt-1 text-lg font-bold text-indigo-600">{formatBaseCurrency(settlement.amount / exchangeRate)}</p>
-                    </div>
-                  </div>
+          {transfers.length > 0 ? (
+            <div className="mt-5 space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl bg-indigo-50 px-4 py-3 ring-1 ring-indigo-100">
+                  <p className="text-xs text-indigo-500">{t('summarySettlementSteps')}</p>
+                  <p className="mt-1 text-xl font-bold text-indigo-700">{transfers.length}</p>
                 </div>
-              ))}
+                <div className="rounded-2xl bg-amber-50 px-4 py-3 ring-1 ring-amber-100">
+                  <p className="text-xs text-amber-500">{t('summaryNeedsPayment')}</p>
+                  <p className="mt-1 text-xl font-bold text-amber-700">{payableFamilies.length}</p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100">
+                  <p className="text-xs text-emerald-500">{t('summaryTotalToSettle')}</p>
+                  <p className="mt-1 text-lg font-bold text-emerald-700">{formatSettlementCurrency(totalSettlementAmount)}</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/90 px-4 py-3 text-sm text-slate-600">
+                {t('summarySettlementOverview', {
+                  transfers: transfers.length,
+                  payers: payableFamilies.length,
+                  receivers: receivableFamilies.length,
+                })}
+              </div>
+
+              <div className="space-y-3">
+                {transfers.map((settlement, index) => {
+                  const fromFamily = families.find(family => family.id === settlement.fromFamilyId);
+                  const toFamily = families.find(family => family.id === settlement.toFamilyId);
+                  const fromName = fromFamily?.name ?? settlement.fromFamilyId;
+                  const toName = toFamily?.name ?? settlement.toFamilyId;
+
+                  return (
+                    <div key={index} className="rounded-2xl border border-slate-100 bg-white/90 p-4 shadow-sm">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600">{fromName}</div>
+                          <ArrowRightLeft size={16} className="text-slate-300" />
+                          <div className="rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-600">{toName}</div>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <p className="text-sm text-slate-500">{fromName} {t('pays')} {toName}</p>
+                          <p className="mt-1 text-lg font-bold text-indigo-600">{formatSettlementCurrency(settlement.amountSettlement)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="mt-5 rounded-3xl bg-gradient-to-r from-emerald-50 to-green-50 p-6 text-center">
@@ -341,7 +318,7 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => formatCurrency(value)}
+                        formatter={(value: unknown) => formatSettlementCurrency(Number(value))}
                         contentStyle={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)' }}
                       />
                     </PieChart>
@@ -360,8 +337,8 @@ export const Summary: React.FC<SummaryProps> = ({ state }) => {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-900">{formatCurrency(category.value)}</p>
-                      <p className="text-xs text-slate-500">{formatBaseCurrency(category.value / exchangeRate)}</p>
+                      <p className="text-sm font-semibold text-slate-900">{formatSettlementCurrency(category.value)}</p>
+                      <p className="text-xs text-slate-500">{settlementCurrencyLabel}</p>
                     </div>
                   </div>
                 ))}

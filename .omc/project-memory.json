@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1772802006872,
-  "projectRoot": "/mnt/d/Projects/travel-finance-helper",
+  "lastScanned": 1773152110032,
+  "projectRoot": "/home/jetio/jetdev/github/travel-finance-helper",
   "techStack": {
     "languages": [
       {
@@ -82,7 +82,7 @@
       "path": "components",
       "purpose": "UI components",
       "fileCount": 16,
-      "lastAccessed": 1772802006777,
+      "lastAccessed": 1773152110025,
       "keyFiles": [
         "AuthModal.tsx",
         "ExpenseForm.tsx",
@@ -95,7 +95,7 @@
       "path": "dist",
       "purpose": "Distribution/build output",
       "fileCount": 1,
-      "lastAccessed": 1772802006787,
+      "lastAccessed": 1773152110029,
       "keyFiles": [
         "index.html"
       ]
@@ -104,14 +104,24 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 0,
-      "lastAccessed": 1772802006799,
+      "lastAccessed": 1773152110029,
       "keyFiles": []
+    },
+    "dogfood-output": {
+      "path": "dogfood-output",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1773152110030,
+      "keyFiles": [
+        "auth-state.json",
+        "report.md"
+      ]
     },
     "i18n": {
       "path": "i18n",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1772802006807,
+      "lastAccessed": 1773152110030,
       "keyFiles": [
         "translations.ts",
         "useTranslation.tsx"
@@ -121,7 +131,7 @@
       "path": "services",
       "purpose": "Business logic services",
       "fileCount": 10,
-      "lastAccessed": 1772802006814,
+      "lastAccessed": 1773152110030,
       "keyFiles": [
         "SyncService.ts",
         "collaborationService.ts",
@@ -134,7 +144,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 1,
-      "lastAccessed": 1772802006823,
+      "lastAccessed": 1773152110031,
       "keyFiles": [
         "vite-env.d.ts"
       ]
@@ -143,7 +153,7 @@
       "path": "types",
       "purpose": "Type definitions",
       "fileCount": 2,
-      "lastAccessed": 1772802006828,
+      "lastAccessed": 1773152110031,
       "keyFiles": [
         "firestore.ts",
         "index.ts"
@@ -152,19 +162,19 @@
     "dist/assets": {
       "path": "dist/assets",
       "purpose": "Static assets",
-      "fileCount": 3,
-      "lastAccessed": 1772802006840,
+      "fileCount": 4,
+      "lastAccessed": 1773152110031,
       "keyFiles": [
-        "index-DEKHsYV1.js",
-        "index.es-C0dxLQIC.js",
-        "purify.es-C_uT9hQ1.js"
+        "index-Co4MegAf.js",
+        "index-I9LE1JAa.css",
+        "index.es-BdSrcy4a.js"
       ]
     },
     "src/services": {
       "path": "src/services",
       "purpose": "Business logic services",
       "fileCount": 1,
-      "lastAccessed": 1772802006860,
+      "lastAccessed": 1773152110032,
       "keyFiles": [
         "authService.ts"
       ]
@@ -173,7 +183,7 @@
       "path": "src/types",
       "purpose": "Type definitions",
       "fileCount": 1,
-      "lastAccessed": 1772802006869,
+      "lastAccessed": 1773152110032,
       "keyFiles": [
         "auth.ts"
       ]
@@ -181,63 +191,237 @@
   },
   "hotPaths": [
     {
-      "path": "dogfood-output/report.md",
-      "accessCount": 11,
-      "lastAccessed": 1772809661854,
+      "path": "",
+      "accessCount": 101,
+      "lastAccessed": 1773222931609,
+      "type": "directory"
+    },
+    {
+      "path": "App.tsx",
+      "accessCount": 64,
+      "lastAccessed": 1773222905320,
       "type": "file"
     },
     {
-      "path": "dogfood-output/screenshots/initial.png",
-      "accessCount": 1,
-      "lastAccessed": 1772802118944,
+      "path": "i18n/translations.ts",
+      "accessCount": 34,
+      "lastAccessed": 1773222856510,
+      "type": "file"
+    },
+    {
+      "path": "components/Summary.tsx",
+      "accessCount": 29,
+      "lastAccessed": 1773222488995,
+      "type": "file"
+    },
+    {
+      "path": "components/UserProfileModal.tsx",
+      "accessCount": 14,
+      "lastAccessed": 1773222914096,
+      "type": "file"
+    },
+    {
+      "path": "components/AuthModal.tsx",
+      "accessCount": 9,
+      "lastAccessed": 1773222787126,
+      "type": "file"
+    },
+    {
+      "path": "components/LoginPromptModal.tsx",
+      "accessCount": 8,
+      "lastAccessed": 1773222787066,
+      "type": "file"
+    },
+    {
+      "path": "src/contexts/AuthContext.tsx",
+      "accessCount": 7,
+      "lastAccessed": 1773222810535,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 6,
+      "lastAccessed": 1773222447139,
+      "type": "file"
+    },
+    {
+      "path": "components/MigrationModal.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1773222686462,
       "type": "file"
     },
     {
       "path": "i18n/useTranslation.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1772807585483,
+      "accessCount": 6,
+      "lastAccessed": 1773222750884,
       "type": "file"
     },
     {
-      "path": "components/LoginForm.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1772807585535,
-      "type": "file"
-    },
-    {
-      "path": "components/SettingsModal.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1772807585597,
+      "path": "services/firebaseConfig.ts",
+      "accessCount": 5,
+      "lastAccessed": 1773222704438,
       "type": "file"
     },
     {
       "path": "components/WelcomeWizard.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1772807613395,
+      "accessCount": 4,
+      "lastAccessed": 1773154097463,
+      "type": "file"
+    },
+    {
+      "path": "components/SettingsModal.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1773222869608,
+      "type": "file"
+    },
+    {
+      "path": "services/storageService.ts",
+      "accessCount": 3,
+      "lastAccessed": 1773153284184,
+      "type": "file"
+    },
+    {
+      "path": "components/ExpenseForm.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1773154097227,
+      "type": "file"
+    },
+    {
+      "path": "components/InviteModal.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1773154097711,
+      "type": "file"
+    },
+    {
+      "path": "services/exportService.ts",
+      "accessCount": 3,
+      "lastAccessed": 1773159377469,
+      "type": "file"
+    },
+    {
+      "path": "src/contexts/CloudSyncContext.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1773152797470,
+      "type": "file"
+    },
+    {
+      "path": "services/firestoreService.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773153577248,
+      "type": "directory"
+    },
+    {
+      "path": "src/services/authService.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773222810554,
+      "type": "file"
+    },
+    {
+      "path": "src/types/auth.ts",
+      "accessCount": 2,
+      "lastAccessed": 1773222905372,
       "type": "file"
     },
     {
       "path": "index.tsx",
       "accessCount": 1,
-      "lastAccessed": 1772807613450,
+      "lastAccessed": 1773152322857,
       "type": "file"
     },
     {
-      "path": ".env.example",
+      "path": "qa-test.js",
       "accessCount": 1,
-      "lastAccessed": 1772809321815,
+      "lastAccessed": 1773153370208,
       "type": "file"
     },
     {
-      "path": "package.json",
+      "path": "components/GuestLedgerSyncModal.tsx",
       "accessCount": 1,
-      "lastAccessed": 1772809321870,
+      "lastAccessed": 1773153985156,
       "type": "file"
     },
     {
-      "path": "README.md",
+      "path": "components/ExpenseList.tsx",
       "accessCount": 1,
-      "lastAccessed": 1772809332036,
+      "lastAccessed": 1773158251909,
+      "type": "file"
+    },
+    {
+      "path": "types.ts",
+      "accessCount": 1,
+      "lastAccessed": 1773158995810,
+      "type": "file"
+    },
+    {
+      "path": "i18n",
+      "accessCount": 1,
+      "lastAccessed": 1773159306646,
+      "type": "directory"
+    },
+    {
+      "path": "MEMORY.md",
+      "accessCount": 1,
+      "lastAccessed": 1773192493452,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.json",
+      "accessCount": 1,
+      "lastAccessed": 1773222435670,
+      "type": "file"
+    },
+    {
+      "path": "components",
+      "accessCount": 1,
+      "lastAccessed": 1773222679374,
+      "type": "directory"
+    },
+    {
+      "path": "components/LoginForm.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222687034,
+      "type": "file"
+    },
+    {
+      "path": "components/RegisterForm.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222687055,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-ac589fef/components/UserProfileModal.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222820103,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-af8c9da7/components/UserProfileModal.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222820110,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-af380a07/components/UserProfileModal.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222820116,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-ac589fef/App.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222838102,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-af380a07/App.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222838126,
+      "type": "file"
+    },
+    {
+      "path": ".claude/worktrees/agent-a3a93532/App.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1773222838155,
       "type": "file"
     }
   ],

@@ -7,12 +7,23 @@ import { useAuth } from '../src/contexts/AuthContext';
 
 interface ExpenseFormProps {
   families: Family[];
+  destination: string;
   currencyCode: string;
+  baseCurrency: string;
+  exchangeRate: number;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
   onClose: () => void;
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode, onAddExpense, onClose }) => {
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({
+  families,
+  destination,
+  currencyCode,
+  baseCurrency,
+  exchangeRate,
+  onAddExpense,
+  onClose,
+}) => {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [description, setDescription] = useState('');
@@ -21,6 +32,30 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
   const [payerId, setPayerId] = useState<string>('');
   const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [sharedWithFamilyIds, setSharedWithFamilyIds] = useState<string[]>([]);
+
+  // Multi-currency settlement fields
+  const [travelPlaceName, setTravelPlaceName] = useState<string>(destination);
+  const [paymentCurrency, setPaymentCurrency] = useState<string>(currencyCode);
+  const [settlementCurrency, setSettlementCurrency] = useState<string>(baseCurrency);
+  const [fxRate, setFxRate] = useState<string>(currencyCode === baseCurrency ? '1' : String(exchangeRate));
+
+  // Keep multi-currency defaults in sync with the active ledger until the user edits them
+  useEffect(() => {
+    setTravelPlaceName(prev => prev || destination);
+  }, [destination]);
+
+  useEffect(() => {
+    setPaymentCurrency(prev => prev || currencyCode);
+  }, [currencyCode]);
+
+  useEffect(() => {
+    setSettlementCurrency(prev => prev || baseCurrency);
+  }, [baseCurrency]);
+
+  useEffect(() => {
+    if (!paymentCurrency || !settlementCurrency) return;
+    setFxRate(paymentCurrency.trim().toUpperCase() === settlementCurrency.trim().toUpperCase() ? '1' : String(exchangeRate));
+  }, [paymentCurrency, settlementCurrency, exchangeRate]);
 
   // Set default payer and default share with all other families
   useEffect(() => {
@@ -34,6 +69,21 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
     const otherFamilyIds = families.filter(f => f.id !== payerId).map(f => f.id);
     setSharedWithFamilyIds(otherFamilyIds);
   }, [payerId, families]);
+
+  // Close on Escape for keyboard accessibility
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
 
   const handleSharedWithToggle = (familyId: string) => {
     setSharedWithFamilyIds(prev =>
@@ -52,27 +102,51 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
     setSharedWithFamilyIds([]);
   };
 
+  const normalizedPaymentCurrency = paymentCurrency.trim().toUpperCase() || currencyCode;
+  const normalizedSettlementCurrency = settlementCurrency.trim().toUpperCase() || baseCurrency;
+  const parsedAmount = parseFloat(amount);
+  const parsedFxRate = parseFloat(fxRate);
+  const effectiveFxRate = normalizedPaymentCurrency === normalizedSettlementCurrency ? 1 : parsedFxRate;
+  const hasValidSettlement = Number.isFinite(parsedAmount) && parsedAmount > 0 && Number.isFinite(effectiveFxRate) && effectiveFxRate > 0;
+  const settlementAmount = hasValidSettlement ? parsedAmount / effectiveFxRate : undefined;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!description || !amount || !date || !payerId) return;
+    if (!description || !amount || !date || !payerId || !hasValidSettlement) return;
+
+    const resolvedTravelPlaceName = travelPlaceName.trim() || destination;
+    const resolvedPaymentCurrency = (paymentCurrency || currencyCode).trim().toUpperCase();
+    const resolvedSettlementCurrency = (settlementCurrency || baseCurrency).trim().toUpperCase();
+    const capturedAt = Date.now();
+
     onAddExpense({
       description,
-      amount: parseFloat(amount),
+      amount: parsedAmount,
       category,
       payerId,
       date: new Date(date).getTime(),
       sharedWithFamilyIds,
+      travelPlaceName: resolvedTravelPlaceName,
+      paymentCurrency: resolvedPaymentCurrency,
+      settlementCurrency: resolvedSettlementCurrency,
+      fxSnapshot: {
+        base: resolvedSettlementCurrency,
+        quote: resolvedPaymentCurrency,
+        rate: effectiveFxRate,
+        capturedAt,
+      },
+      amountSettlement: settlementAmount,
       // Add creator info
       createdBy: user?.uid,
       createdByDisplayName: user?.displayName || user?.email?.split('@')[0] || 'User',
-      createdAt: Date.now(),
+      createdAt: capturedAt,
     });
     onClose();
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col border border-white/50">
+      <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col border border-white/50 max-h-[90vh]">
         {/* Header - Travel Theme */}
         <div className="p-5 flex justify-between items-center bg-gradient-to-r from-sky-500 to-blue-600 text-white">
           <div className="flex items-center gap-3">
@@ -89,7 +163,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
           </button>
         </div>
 
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           <form id="expense-form" onSubmit={handleSubmit} className="space-y-5">
             {/* Date Field */}
             <div>
@@ -128,10 +202,10 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
             <div>
               <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
                 <CreditCard size={14} className="text-sky-500" />
-                {t('amount')} ({currencyCode})
+                {t('amount')} ({paymentCurrency || currencyCode})
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">{currencyCode}</span>
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">{paymentCurrency || currencyCode}</span>
                 <input
                   type="number"
                   required
@@ -142,6 +216,73 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ families, currencyCode
                   placeholder={t('amountPlaceholder')}
                   className="w-full pl-16 pr-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all font-mono font-bold text-lg"
                 />
+              </div>
+            </div>
+
+            {/* Multi-currency Settlement */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-2">
+                  <MapPin size={14} className="text-sky-500" />
+                  {t('travelPlaceName')}
+                </label>
+                <input
+                  type="text"
+                  value={travelPlaceName}
+                  onChange={(e) => setTravelPlaceName(e.target.value)}
+                  placeholder={destination}
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  {t('paymentCurrency')}
+                </label>
+                <input
+                  type="text"
+                  value={paymentCurrency}
+                  onChange={(e) => setPaymentCurrency(e.target.value.toUpperCase())}
+                  maxLength={3}
+                  className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 uppercase focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  {t('settlementCurrency')}
+                </label>
+                <input
+                  type="text"
+                  value={settlementCurrency}
+                  readOnly
+                  className="w-full px-4 py-3.5 bg-gray-100 border border-gray-200 rounded-2xl text-gray-700 uppercase focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  {t('fxRate')} ({t('fxRateHint')})
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  value={fxRate}
+                  onChange={(e) => setFxRate(e.target.value)}
+                  disabled={normalizedPaymentCurrency === normalizedSettlementCurrency}
+                  className={`w-full px-4 py-3.5 border border-gray-200 rounded-2xl text-gray-900 focus:ring-2 focus:ring-sky-500 focus:border-transparent outline-none transition-all font-mono ${normalizedPaymentCurrency === normalizedSettlementCurrency ? 'bg-gray-100 text-gray-700' : 'bg-gray-50'}`}
+                />
+                {paymentCurrency && settlementCurrency && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    1 {settlementCurrency || baseCurrency} = {paymentCurrency === settlementCurrency ? '1' : fxRate || exchangeRate} {paymentCurrency || currencyCode}
+                  </p>
+                )}
+                {settlementAmount !== undefined && (
+                  <p className="mt-1 text-sm font-semibold text-sky-700">
+                    {t('settlementAmount')}: {settlementAmount.toFixed(2)} {settlementCurrency || baseCurrency}
+                  </p>
+                )}
               </div>
             </div>
 

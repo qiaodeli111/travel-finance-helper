@@ -1,0 +1,4 @@
+{"t":0,"agent":"af6b7d2","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a387de7","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"example-skills:webapp-testing"}
+{"t":0,"agent":"a9ac2f5","agent_type":"unknown","event":"agent_stop","success":true}

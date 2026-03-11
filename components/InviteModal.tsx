@@ -69,6 +69,23 @@ export const InviteModal: React.FC<InviteModalProps> = ({
     }
   }, [isOpen, mode, ledgerId, ledgerName]);
 
+  // Close on Escape for keyboard accessibility
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   const fetchInvitationDetails = async (code: string) => {
     setLoading(true);
     setJoinError(null);
@@ -331,7 +348,7 @@ export const InviteModal: React.FC<InviteModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-white/50">
+      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-white/50 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-5 flex justify-between items-center bg-gradient-to-r from-sky-500 to-blue-600 text-white">
           <div className="flex items-center gap-3">
@@ -356,7 +373,7 @@ export const InviteModal: React.FC<InviteModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           {mode === 'create' ? renderCreateMode() : renderJoinMode()}
         </div>
 

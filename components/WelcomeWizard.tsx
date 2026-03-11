@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plane, MapPin, Globe, Users, BookOpen, Star, ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { Family, COUNTRIES, ORIGIN_COUNTRIES } from '../types';
 import { useTranslation, getCountryDisplayText } from '../i18n/useTranslation';
@@ -6,6 +6,7 @@ import { LANGUAGE_NAMES, Language } from '../i18n/translations';
 
 interface WelcomeWizardProps {
   isOpen: boolean;
+  onClose?: () => void;
   onComplete: (data: {
     ledgerName: string;
     destination: string;
@@ -17,12 +18,13 @@ interface WelcomeWizardProps {
 }
 
 const DEFAULT_FAMILIES: Family[] = [
-  { id: 'f1', name: '家庭 1', count: 4 },
-  { id: 'f2', name: '家庭 2', count: 2 }
+  { id: 'f1', name: 'family1', count: 2 },
+  { id: 'f2', name: 'lilei', count: 1 }
 ];
 
 export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
   isOpen,
+  onClose,
   onComplete
 }) => {
   const { t, language, setLanguage } = useTranslation();
@@ -33,6 +35,20 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
   const [destination, setDestination] = useState('印度尼西亚');
   const [families, setFamilies] = useState<Family[]>(DEFAULT_FAMILIES);
   const [setAsDefault, setSetAsDefault] = useState(true);
+
+  // Handle Escape key to close dialog
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape' && onClose) {
+      onClose();
+    }
+  }, [onClose]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [isOpen, handleKeyDown]);
 
   if (!isOpen) return null;
 
@@ -53,19 +69,32 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
   };
 
   const handleAddFamily = () => {
-    if (families.length >= 5) return;
+    const totalPeople = families.reduce((sum, f) => sum + f.count, 0);
+    if (totalPeople >= 100) return;
+
     const newId = `f${Date.now()}`;
     const defaultName = language === 'zh' ? `家庭 ${families.length + 1}` : `Group ${families.length + 1}`;
-    setFamilies([...families, { id: newId, name: defaultName, count: 2 }]);
+    setFamilies([...families, { id: newId, name: defaultName, count: 1 }]);
   };
 
   const handleRemoveFamily = (id: string) => {
-    if (families.length <= 2) return;
+    if (families.length <= 1) return;
     setFamilies(families.filter(f => f.id !== id));
   };
 
   const handleUpdateFamily = (id: string, field: 'name' | 'count', value: string | number) => {
-    setFamilies(families.map(f => f.id === id ? { ...f, [field]: value } : f));
+    if (field === 'count') {
+      const nextValue = Math.max(1, typeof value === 'number' ? value : parseInt(String(value), 10) || 1);
+      const totalWithoutThis = families
+        .filter(f => f.id !== id)
+        .reduce((sum, f) => sum + f.count, 0);
+      const maxAllowedForThis = Math.max(1, 100 - totalWithoutThis);
+      const nextCount = Math.min(nextValue, maxAllowedForThis);
+      setFamilies(families.map(f => (f.id === id ? { ...f, count: nextCount } : f)));
+      return;
+    }
+
+    setFamilies(families.map(f => (f.id === id ? { ...f, [field]: value } : f)));
   };
 
   const handleComplete = () => {
@@ -83,7 +112,7 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
 
   return (
     <div className="fixed inset-0 bg-gradient-to-br from-sky-500 to-blue-600 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl">
+      <div className="bg-white rounded-3xl w-full max-w-xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-6 text-center bg-gradient-to-r from-sky-50 to-blue-50">
           <div className="w-16 h-16 bg-gradient-to-br from-sky-400 to-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -106,7 +135,7 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 min-h-[300px]">
+        <div className="p-6 min-h-[300px] overflow-y-auto">
           {/* Step 1: Language */}
           {step === 1 && (
             <div className="space-y-6">
@@ -201,14 +230,13 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
                     <Users size={16} className="text-sky-500" />
                     {t('families')}
                   </label>
-                  {families.length < 5 && (
-                    <button
-                      onClick={handleAddFamily}
-                      className="text-sky-600 text-sm font-medium hover:text-sky-700"
-                    >
-                      + {t('addGroup')}
-                    </button>
-                  )}
+                  <button
+                    onClick={handleAddFamily}
+                    className="text-sky-600 text-sm font-medium hover:text-sky-700 disabled:text-gray-400 disabled:cursor-not-allowed"
+                    disabled={families.reduce((sum, family) => sum + family.count, 0) >= 100}
+                  >
+                    + {t('addGroup')}
+                  </button>
                 </div>
                 <div className="space-y-2">
                   {families.map((f) => (
@@ -222,11 +250,12 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
                       <input
                         type="number"
                         min="1"
+                        max={Math.max(1, 100 - families.filter(family => family.id !== f.id).reduce((sum, family) => sum + family.count, 0))}
                         value={f.count}
                         onChange={(e) => handleUpdateFamily(f.id, 'count', parseInt(e.target.value) || 1)}
                         className="w-16 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm text-center focus:ring-2 focus:ring-sky-500 outline-none"
                       />
-                      {families.length > 2 && (
+                      {families.length > 1 && (
                         <button
                           onClick={() => handleRemoveFamily(f.id)}
                           className="p-2 text-red-400 hover:text-red-600"
@@ -237,6 +266,9 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
                     </div>
                   ))}
                 </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  {language === 'zh' ? `总人数上限 100 人，当前 ${families.reduce((sum, family) => sum + family.count, 0)} 人` : `Maximum 100 participants total, currently ${families.reduce((sum, family) => sum + family.count, 0)}`}
+                </p>
               </div>
             </div>
           )}
@@ -271,12 +303,17 @@ export const WelcomeWizard: React.FC<WelcomeWizardProps> = ({
         {/* Footer */}
         <div className="p-6 border-t border-gray-100 flex justify-between bg-gray-50/50">
           <button
-            onClick={() => setStep(step - 1)}
-            disabled={step === 1}
-            className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-200 rounded-xl transition-colors disabled:opacity-30 flex items-center gap-2"
+            onClick={() => {
+              if (step === 1) {
+                onClose?.();
+              } else {
+                setStep(step - 1);
+              }
+            }}
+            className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-200 rounded-xl transition-colors flex items-center gap-2"
           >
             <ArrowLeft size={18} />
-            {t('cancel')}
+            {step === 1 ? t('cancel') : (language === 'zh' ? '上一步' : 'Back')}
           </button>
 
           {step < totalSteps ? (

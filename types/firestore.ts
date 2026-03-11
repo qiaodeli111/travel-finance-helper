@@ -1,4 +1,4 @@
-import { Family, Category } from './index';
+import { Family, Category, FxSnapshot } from './index';
 
 // For use without direct Firebase import
 export type Timestamp = {
@@ -77,6 +77,11 @@ export interface CloudExpense {
   category: Category;
   payerId: string;
   sharedWithFamilyIds: string[];
+  travelPlaceName?: string;
+  paymentCurrency?: string;
+  settlementCurrency?: string;
+  fxSnapshot?: FxSnapshot;
+  amountSettlement?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 

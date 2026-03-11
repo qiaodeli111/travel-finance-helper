@@ -58,9 +58,30 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [downloading, setDownloading] = useState(false);
 
+  // Pure remote: ledgers come directly from props (which are from cloudLedgers)
+  const displayLedgers = ledgers;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const nextSelectedLedger =
+      displayLedgers.find((ledger) => ledger.id === selectedLedger?.id) ||
+      displayLedgers.find((ledger) => ledger.isDefault) ||
+      displayLedgers.find((ledger) => ledger.id === activeId) ||
+      displayLedgers[0] ||
+      null;
+
+    if (nextSelectedLedger?.id !== selectedLedger?.id) {
+      setSelectedLedger(nextSelectedLedger);
+    } else if (!nextSelectedLedger && selectedLedger) {
+      setSelectedLedger(null);
+    }
+  }, [isOpen, displayLedgers, activeId, selectedLedger]);
+
   // Load ledger data from cloud when selected
   useEffect(() => {
     if (selectedLedger) {
+      setLedgerData(null);
       const loadLedgerData = async () => {
         setLoading(true);
         try {
@@ -87,11 +108,27 @@ export const LedgerManagePanel: React.FC<LedgerManagePanelProps> = ({
         }
       };
       loadLedgerData();
+    } else {
+      setLedgerData(null);
     }
   }, [selectedLedger]);
 
-  // Pure remote: ledgers come directly from props (which are from cloudLedgers)
-  const displayLedgers = ledgers;
+  // Close on Escape for keyboard accessibility
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   // Handle select ledger - pure remote, just select it
   const handleSelectLedger = (ledger: LedgerMeta) => {

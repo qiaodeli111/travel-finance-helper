@@ -21,7 +21,7 @@ export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-6 text-center bg-gradient-to-r from-sky-50 to-blue-50">
           <div className="w-16 h-16 bg-gradient-to-br from-sky-400 to-blue-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -36,7 +36,7 @@ export const LoginPromptModal: React.FC<LoginPromptModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="p-6 flex flex-col gap-3">
+        <div className="p-6 flex flex-col gap-3 overflow-y-auto">
           <button
             onClick={onLogin}
             className="w-full py-3 px-4 bg-gradient-to-r from-sky-500 to-blue-600 text-white rounded-xl font-medium flex items-center justify-center gap-2 hover:from-sky-600 hover:to-blue-700 transition-all"
